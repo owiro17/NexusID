@@ -1,3 +1,5 @@
 **/.venv/
 **/node_modules/
 Backend/Mouse-Dynamics-Challenge-master/
+Backend/.env
+Backend/

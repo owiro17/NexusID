@@ -1,56 +1,72 @@
-# NexusID: Continuous Adaptive Identity & Behavioral Orchestration
+# 🛡️ NexusID: Continuous Adaptive Identity System
 
-> **Continuous Adaptive Identity and Behavioral Orchestration System** securing high-value applications by leveraging edge-computed multimodal behavioral biometrics (keystroke dynamics and mouse telemetry) and native PostgreSQL Row-Level Security (RLS) to mitigate post-authentication session hijacking.
+NexusID is a next-generation Zero Trust identity platform. Instead of relying purely on point-in-time passwords, NexusID utilizes **FIDO2/Passkeys** for initial authentication and **Continuous Behavioral Biometrics** (Mouse Kinematics & Keystroke Dynamics) to silently verify users in the background.
 
-## 📌 Project Overview
-Traditional digital authentication relies on a binary "gatekeeper" model—a static barrier where users exchange a secret (or passkey) for access. However, once inside, the system blindly trusts the active session. **NexusID** eliminates this vulnerability by shifting from perimeter defense to **Continuous Behavioral Authentication**. 
+If anomalous behavior is detected (e.g., session hijacking), the system intelligently triggers a Step-Up Verification (MFA/OTP) rather than instantly disrupting the user experience.
 
-By silently capturing neuromuscular telemetry (keystroke rhythms and mouse kinematics) and programatic AI agent cadences, NexusID generates a dynamic risk score via edge-based machine learning. This score is injected into a secure JSON Web Token (JWT) and enforced natively at the database layer using PostgreSQL Row-Level Security (RLS), achieving true zero-trust architecture without introducing user friction or application latency.
+---
 
-## ✨ Core Features
-* **Passkey-First WebAuthn:** Replaces vulnerable passwords with cryptographic, device-bound FIDO2 passkeys for initial access.
-* **Continuous Telemetry Ingestion:** Silently captures 60Hz interaction signals (dwell time, flight time, pointer efficiency) without blocking the main browser thread.
-* **Stateless Edge Inference:** Executes 8-bit quantized ONNX machine learning models on V8 edge isolates (e.g., Vercel Edge Functions) for sub-100ms anomaly detection.
-* **Database-Layer Enforcement (RLS):** Bypasses application middleware by passing behavioral risk scores directly to Supabase PostgreSQL, which dynamically masks rows, restricts access, or drops write privileges if anomalies are detected.
-* **Dual-Track Governance:** Monitors and governs both human operators and autonomous AI agent API cadences.
+## 🏗️ Architecture Overview
 
-## 🏗️ System Architecture Flow
+The system is built on a decoupled, infrastructure-agnostic architecture designed to run on Edge environments (Vercel/Cloudflare).
 
-**[ INPUTS ]** ➔➔➔ **[ PROCESSES ]** ➔➔➔ **[ OUTPUTS ]**
+1. **Frontend (Next.js & React):**
+   - **Auth UI:** Supabase Auth integration for Passkeys (WebAuthn), Magic Links, OTP, and OAuth.
+   - **Telemetry SDK:** A lightweight React hook (`useTelemetry`) that silently captures and batches X/Y mouse coordinates and keystroke timings into 5-second windows.
+2. **Edge Inference API (Next.js Route):**
+   - Receives telemetry chunks and fetches the user's "Golden Baseline" from the database.
+   - Runs lightning-fast inference using **ONNX Runtime** (Random Forest / 1D-CNN).
+   - Calculates a `Risk Score (0-100)` and issues a signed Risk JWT.
+3. **Zero Trust Database (Supabase):**
+   - **Telemetry Vault:** Securely stores historical behavioral baselines.
+   - **Row-Level Security (RLS):** Database policies that automatically reject mutations (e.g., financial transfers) if the injected Risk JWT exceeds the safety threshold.
 
-1. **Interaction Signals:** WebAuthn Passkey Login, 60Hz Behavioral Telemetry (Keystrokes/Mouse), and Agentic API Cadence.
-2. **NexusID Edge Engine:** 
-   * *Ingestion & Normalization:* Cleans and vectorizes incoming interaction signals.
-   * *AI Risk Scoring:* Quantized ONNX models (1D-CNN, Random Forest, Logistic Regression) compare behavior against a cached, AES-256 encrypted "Golden Baseline."
-   * *JWT Injection:* Generates a probabilistic risk score (0-100) and cryptographically signs it into the session token.
-3. **Access Decisions (Database RLS):** 
-   * 🟢 **Maintain Access** (Score ≤ 50: Expected Behavior)
-   * 🟡 **Step-Up Challenge** (Score 51-80: Minor Anomalies)
-   * 🔴 **Terminate/Restrict** (Score > 80: Imposter/Hijack Detected - Database dynamically hides ledgers)
+---
 
-## 💻 Tech Stack
-* **Frontend Interface:** Next.js (App Router), React, TypeScript, Tailwind CSS.
-* **Backend Orchestration:** NestJS (API Gateway, transaction orchestration).
-* **Machine Learning / MLOps:** Python, TensorFlow, XGBoost, ONNX Runtime.
-* **Edge Computing:** Vercel Edge Runtimes, Edge KV Store.
-* **Data Persistence & Security:** Supabase (PostgreSQL 16), PgBouncer, Native Row-Level Security (RLS).
+## 🚀 Getting Started for Contributors
 
-## 📊 Dataset & Machine Learning
-The foundational keystroke dynamics model is trained and benchmarked using the **DSL-StrongPasswordData.csv** dataset.
-* **Scope:** 50 users (subjects `s001`–`s050`), ~400 samples per user.
-* **Features Extracted:** Hold times, Up-Down, and Down-Down timing intervals.
-* **Performance:** Tree-based classifiers significantly outperform linear models in behavioral biometrics. Our baseline XGBoost classifier achieved an industry-leading **91.1% accuracy** in multi-class user identification, serving as the foundation for the quantized ONNX models deployed to the edge.
+### Prerequisites
+- Node.js (v20+ recommended)
+- Python 3.10+ (for ML pipeline development)
+- Supabase CLI (optional, for local DB development)
 
-## 🚀 Getting Started
-
-### 1. Prerequisites
-* Node.js (v18.17.0 or higher recommended)
-* npm, yarn, or pnpm
-* A Supabase account and configured PostgreSQL project
-
-### 2. Installation
-
-**Clone the repository:**
+### 1. Frontend & API Setup
+Navigate to the frontend directory and install dependencies:
 ```bash
-git clone [https://github.com/owiro17/NexusID.git](https://github.com/owiro17/NexusID.git)
-cd NexusID
+cd Frontend/nexus-id
+npm install
+```
+Start the development server:
+```bash
+npm run dev
+```
+The dashboard and telemetry collector will be available at `http://localhost:3000/dashboard`.
+
+### 2. Machine Learning Pipeline (Python)
+If you wish to train new models or modify the feature engineering pipeline:
+```bash
+cd Backend
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+# Mac/Linux
+source .venv/bin/activate
+
+pip install -r requirements.txt
+```
+To run the full end-to-end training pipeline and export new `.onnx` models to the Next.js public directory:
+```bash
+python scratch/train_pipeline_fixed.py
+python scratch/convert_to_onnx.py
+```
+
+---
+
+## 🧪 Current ML Models (MVP Phase)
+*   **Keystrokes:** Random Forest Classifier (~93% accuracy on 51 subjects) using Mean/Std aggregates of Hold Times and Flight Times.
+*   **Mouse Dynamics:** Random Forest Classifier (~69% accuracy) evaluating spatial-temporal kinematics (Velocity, Acceleration, Jerk).
+*   **Roadmap Upgrade:** Transitioning to a Siamese 1D-CNN for deep spatial feature extraction.
+
+## 🔒 Security & Privacy
+All telemetry data is anonymized and converted into statistical kinematic features *before* storage. Raw X/Y coordinates mapping to specific UI elements are never stored in plain text, ensuring user privacy is maintained while securing the session.
