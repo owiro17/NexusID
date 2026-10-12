@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: ["onnxruntime-node"], // Correct Next.js 15+ syntax
 };
 
 export default nextConfig;

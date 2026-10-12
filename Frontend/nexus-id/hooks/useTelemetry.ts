@@ -23,14 +23,23 @@ export type TelemetryWindow = {
 };
 
 export function useTelemetry(windowSizeMs = 5000) {
-  const [currentRiskScore, setCurrentRiskScore] = useState<number>(0); // 0-100
+  const [currentRiskScore, setCurrentRiskScore] = useState<number>(0); 
+  const [totalKeystrokes, setTotalKeystrokes] = useState<number>(0);
+  const [totalMouseEvents, setTotalMouseEvents] = useState<number>(0);
+  
   const keysBuffer = useRef<KeyEvent[]>([]);
   const mouseBuffer = useRef<MouseEventRecord[]>([]);
   const windowStart = useRef<number>(Date.now());
 
+  // Use refs for cumulative totals to avoid re-triggering the effect
+  const cumulativeKeys = useRef<number>(0);
+  const cumulativeMouse = useRef<number>(0);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       keysBuffer.current.push({ key: e.key, type: 'keydown', timestamp: Date.now() });
+      cumulativeKeys.current += 1;
+      setTotalKeystrokes(cumulativeKeys.current);
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -38,16 +47,19 @@ export function useTelemetry(windowSizeMs = 5000) {
     };
 
     const handleMouseMove = (e: MouseEvent) => {
-      // Throttle mouse events to ~20hz to prevent overwhelming the payload
       if (mouseBuffer.current.length > 0) {
         const last = mouseBuffer.current[mouseBuffer.current.length - 1];
         if (Date.now() - last.timestamp < 50) return; 
       }
       mouseBuffer.current.push({ x: e.clientX, y: e.clientY, type: 'mousemove', timestamp: Date.now() });
+      cumulativeMouse.current += 1;
+      setTotalMouseEvents(cumulativeMouse.current);
     };
 
     const handleMouseClick = (e: MouseEvent) => {
       mouseBuffer.current.push({ x: e.clientX, y: e.clientY, type: e.type as 'mousedown'|'mouseup', timestamp: Date.now() });
+      cumulativeMouse.current += 1;
+      setTotalMouseEvents(cumulativeMouse.current);
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -56,7 +68,6 @@ export function useTelemetry(windowSizeMs = 5000) {
     window.addEventListener('mousedown', handleMouseClick);
     window.addEventListener('mouseup', handleMouseClick);
 
-    // Set up the interval to process the sliding window
     const intervalId = setInterval(async () => {
       const now = Date.now();
       const payload: TelemetryWindow = {
@@ -66,15 +77,12 @@ export function useTelemetry(windowSizeMs = 5000) {
         windowEndTime: now,
       };
 
-      // Reset buffers for the next window
       keysBuffer.current = [];
       mouseBuffer.current = [];
       windowStart.current = now;
 
-      // Only send to the backend if there is actual activity
       if (payload.keys.length > 0 || payload.mouse.length > 0) {
         try {
-          // Send data to our Next.js API route to view it in the terminal
           const response = await fetch('/api/telemetry', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -83,7 +91,6 @@ export function useTelemetry(windowSizeMs = 5000) {
           
           if (response.ok) {
             const data = await response.json();
-            // Update the UI with the mock risk score returned from the server
             if (data.risk_score !== undefined) {
               setCurrentRiskScore(data.risk_score);
             }
@@ -104,5 +111,5 @@ export function useTelemetry(windowSizeMs = 5000) {
     };
   }, [windowSizeMs]);
 
-  return { currentRiskScore };
+  return { currentRiskScore, totalKeystrokes, totalMouseEvents };
 }
