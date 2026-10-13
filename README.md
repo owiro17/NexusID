@@ -1,4 +1,4 @@
-# 🛡️ NexusID: Continuous Adaptive Identity System
+#  NexusID: Continuous Adaptive Identity System
 
 NexusID is a next-generation Zero Trust identity platform. Instead of relying purely on point-in-time passwords, NexusID utilizes **FIDO2/Passkeys** for initial authentication and **Continuous Behavioral Biometrics** (Mouse Kinematics & Keystroke Dynamics) to silently verify users in the background.
 
@@ -6,7 +6,7 @@ If anomalous behavior is detected (e.g., session hijacking), the system intellig
 
 ---
 
-## 🏗️ Architecture Overview
+## Architecture Overview
 
 The system is built on a decoupled, infrastructure-agnostic architecture designed to run on Edge environments (Vercel/Cloudflare).
 
@@ -23,7 +23,7 @@ The system is built on a decoupled, infrastructure-agnostic architecture designe
 
 ---
 
-## 🚀 Getting Started for Contributors
+##  Getting Started for Contributors
 
 ### Prerequisites
 - Node.js (v20+ recommended)
@@ -63,10 +63,10 @@ python scratch/convert_to_onnx.py
 
 ---
 
-## 🧪 Current ML Models (MVP Phase)
+##  Current ML Models (MVP Phase)
 *   **Keystrokes:** Random Forest Classifier (~93% accuracy on 51 subjects) using Mean/Std aggregates of Hold Times and Flight Times.
 *   **Mouse Dynamics:** Random Forest Classifier (~69% accuracy) evaluating spatial-temporal kinematics (Velocity, Acceleration, Jerk).
 *   **Roadmap Upgrade:** Transitioning to a Siamese 1D-CNN for deep spatial feature extraction.
 
-## 🔒 Security & Privacy
+##  Security & Privacy
 All telemetry data is anonymized and converted into statistical kinematic features *before* storage. Raw X/Y coordinates mapping to specific UI elements are never stored in plain text, ensuring user privacy is maintained while securing the session.
