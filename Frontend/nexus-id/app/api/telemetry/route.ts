@@ -1,86 +1,125 @@
 import { NextResponse } from 'next/server';
-import * as ort from 'onnxruntime-node';
-import path from 'path';
+import { createClient } from '@/lib/supabase/server';
 
-// Helper to calculate keystroke aggregates matching the Python logic
-function processKeystrokes(keys: any[]) {
-  // If no keys, return a zero vector
-  if (!keys || keys.length < 2) return Array(31).fill(0);
-  
-  // For MVP, we pass a dummy 31-feature vector to ONNX if we don't calculate the exact H, DD, UD.
-  // In full production, this maps exactly to the 31 columns.
-  // We'll simulate the fixed length vector for this test:
-  return Array(31).fill(0.15); 
+interface KeyEventData {
+  key: string;
+  type: 'keydown' | 'keyup';
+  timestamp: number;
 }
 
-// Helper to calculate mouse aggregates
-function processMouse(mouseEvents: any[]) {
-  if (!mouseEvents || mouseEvents.length < 2) return [0, 0, 0, 0, 0, 100];
-  
-  let totalDist = 0;
-  let idleTime = 0;
-  let totalTime = mouseEvents[mouseEvents.length - 1].timestamp - mouseEvents[0].timestamp;
-  
-  // Calculate basic velocity and idle metrics to feed to the model
-  return [250.5, 50.2, 800.0, 12.5, 5.0, 10.0]; // Mocked [mean_vel, std_vel, max_vel, mean_acc, std_acc, idle_pct] for MVP test
+interface MouseEventData {
+  x: number;
+  y: number;
+  type: string;
+  timestamp: number;
+}
+
+// Pure TypeScript/JS mathematical feature extraction & scoring (instant, non-blocking)
+function evaluateKeystrokeDynamics(keys: KeyEventData[]): number {
+  if (!keys || keys.length < 3) return 0.95; // Nominal human baseline if few keys
+
+  const intervals: number[] = [];
+  for (let i = 1; i < keys.length; i++) {
+    const diff = keys[i].timestamp - keys[i - 1].timestamp;
+    if (diff > 0 && diff < 5000) {
+      intervals.push(diff);
+    }
+  }
+
+  if (intervals.length === 0) return 0.95;
+
+  const mean = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+  const variance =
+    intervals.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / intervals.length;
+  const stdDev = Math.sqrt(variance);
+
+  // Bots/scripts have ultra-low stdDev (< 2ms) or inhumanly fast typing (< 20ms mean)
+  if (mean < 25 || stdDev < 3) {
+    return 0.15; // Highly suspicious anomaly
+  }
+
+  // Normal human typing cadence: mean between 80ms and 600ms with healthy natural variance
+  if (mean >= 60 && mean <= 800 && stdDev >= 15) {
+    return 0.96;
+  }
+
+  return 0.85;
+}
+
+function evaluateMouseKinematics(mouse: MouseEventData[]): number {
+  if (!mouse || mouse.length < 3) return 0.92;
+
+  const velocities: number[] = [];
+  for (let i = 1; i < mouse.length; i++) {
+    const dt = Math.max(1, mouse[i].timestamp - mouse[i - 1].timestamp);
+    const dx = mouse[i].x - mouse[i - 1].x;
+    const dy = mouse[i].y - mouse[i - 1].y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    velocities.push(dist / dt); // pixels per ms
+  }
+
+  if (velocities.length === 0) return 0.92;
+
+  const maxVel = Math.max(...velocities);
+  const avgVel = velocities.reduce((a, b) => a + b, 0) / velocities.length;
+
+  // Inhuman teleportation or instant cursor snapping (> 15 px/ms without curvature)
+  if (maxVel > 20) {
+    return 0.25;
+  }
+
+  // Smooth, organic human movement
+  return 0.94;
 }
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    
-    // 1. Process Telemetry into fixed vectors
-    const keyFeatures = processKeystrokes(body.keys);
-    const mouseFeatures = processMouse(body.mouse);
+    const body = await request.json().catch(() => ({}));
+    const keys: KeyEventData[] = Array.isArray(body.keys) ? body.keys : [];
+    const mouse: MouseEventData[] = Array.isArray(body.mouse) ? body.mouse : [];
 
-    // 2. Load ONNX Models from the public folder
-    const keyModelPath = path.join(process.cwd(), 'public', 'models', 'keystroke.onnx');
-    const mouseModelPath = path.join(process.cwd(), 'public', 'models', 'mouse.onnx');
-    
-    let keyConfidence = 0.5;
-    let mouseConfidence = 0.5;
+    const keyConfidence = evaluateKeystrokeDynamics(keys);
+    const mouseConfidence = evaluateMouseKinematics(mouse);
 
+    // Multimodal Fusion: Weighted combination
+    const pLegit = keyConfidence * 0.65 + mouseConfidence * 0.35;
+    // Map legitimacy to Risk Score (0 = lowest risk, 100 = highest risk)
+    const riskScore = Math.max(0, Math.min(100, Math.round((1 - pLegit) * 100)));
+
+    // Optional: Synchronize real risk score to Supabase user profile in background
     try {
-      // Create Inference Sessions
-      const keySession = await ort.InferenceSession.create(keyModelPath);
-      const mouseSession = await ort.InferenceSession.create(mouseModelPath);
+      const supabase = await createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-      // Run Keystroke Inference
-      const keyTensor = new ort.Tensor('float32', Float32Array.from(keyFeatures), [1, 31]);
-      const keyFeeds: Record<string, ort.Tensor> = {};
-      keyFeeds[keySession.inputNames[0]] = keyTensor;
-      const keyResults = await keySession.run(keyFeeds);
-      
-      // Run Mouse Inference
-      const mouseTensor = new ort.Tensor('float32', Float32Array.from(mouseFeatures), [1, 6]);
-      const mouseFeeds: Record<string, ort.Tensor> = {};
-      mouseFeeds[mouseSession.inputNames[0]] = mouseTensor;
-      const mouseResults = await mouseSession.run(mouseFeeds);
-      
-      // The models return probabilities in the second output tensor (probabilities)
-      // We will parse this out properly based on skl2onnx outputs
-      keyConfidence = 0.94; // We'll parse real tensor output next
-      mouseConfidence = 0.88; 
-      
-    } catch (e) {
-      console.warn("ONNX models not fully compiled or loaded yet. Using fallback values.");
+      if (user) {
+        await supabase
+          .from('user_profiles')
+          .update({
+            behavioral_risk_score: riskScore,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('user_id', user.id);
+      }
+    } catch (syncErr) {
+      // Non-critical; do not block telemetry response
     }
 
-    // 3. Multimodal Fusion: Weighted Logistic Regression
-    // For MVP: Simple weighted average calibrated to a 0-100 Risk Score
-    const pLegit = (keyConfidence * 0.7) + (mouseConfidence * 0.3);
-    const riskScore = Math.max(0, Math.min(100, Math.round((1 - pLegit) * 100)));
-    
-    console.log(`[NexusID Engine] Evaluated Window -> Keystroke Conf: ${keyConfidence.toFixed(2)} | Mouse Conf: ${mouseConfidence.toFixed(2)} | Final Risk: ${riskScore}`);
-
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       risk_score: riskScore,
-      modalities: { keystroke: keyConfidence, mouse: mouseConfidence }
+      modalities: {
+        keystroke: Number(keyConfidence.toFixed(2)),
+        mouse: Number(mouseConfidence.toFixed(2)),
+      },
+      evaluated_events: {
+        keys: keys.length,
+        mouse: mouse.length,
+      },
     });
-    
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error processing telemetry API:', error);
-    return NextResponse.json({ success: false, error: 'Bad Request' }, { status: 400 });
+    return NextResponse.json({ success: false, error: 'Telemetry evaluation failed' }, { status: 400 });
   }
 }

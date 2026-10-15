@@ -1,232 +1,389 @@
 'use client';
 
-import { useState } from 'react';
-import { useTelemetry } from '@/hooks/useTelemetry';
-import { createClient } from '@/utils/supabase/client';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@/utils/supabase/client';
+import { registerPasskey } from '@/lib/supabase/passkeys';
+import {
+  Fingerprint,
+  ShieldCheck,
+  ArrowRight,
+  Loader2,
+  CheckCircle2,
+  Lock,
+  Mail,
+  KeyRound,
+  ArrowLeft,
+} from 'lucide-react';
 
 export default function SignUpPage() {
-  const [step, setStep] = useState(1);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState(''); 
-  const [q1, setQ1] = useState('');
-  const [q2, setQ2] = useState('');
-  const [agreed, setAgreed] = useState(false);
-  const [status, setStatus] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  
   const router = useRouter();
   const supabase = createClient();
 
-  // Captures typing data during the questions
-  const { currentRiskScore, totalKeystrokes, totalMouseEvents } = useTelemetry(30000); 
+  const [step, setStep] = useState<1 | 2>(1);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{
+    type: 'error' | 'success' | 'info';
+    text: string;
+  } | null>(null);
 
-  // Calculate baseline integrity (we want ~100 keystrokes and ~200 mouse events for a solid baseline)
-  const keyProgress = Math.min((totalKeystrokes / 100) * 100, 100);
-  const mouseProgress = Math.min((totalMouseEvents / 200) * 100, 100);
-  const overallProgress = (keyProgress + mouseProgress) / 2;
+  const [createdUser, setCreatedUser] = useState<any>(null);
 
-  const handleNext = (e: React.FormEvent) => {
+  // Step 1: Create Supabase Account
+  const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStep(step + 1);
-  };
-
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!agreed) {
-      alert("You must agree to the Terms & Conditions to securely store your baseline.");
-      return;
-    }
+    if (!email || !password) return;
 
     setIsLoading(true);
-    setStatus('Creating account and registering Passkey...');
+    setStatusMessage(null);
 
     try {
-      // 1. Sign up the user 
+      // 1. Sign up user
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
+        email: email.trim(),
         password,
       });
 
       if (authError || !authData.user) {
-        setStatus(`Error: ${authError?.message || 'Failed to create user.'}`);
+        setStatusMessage({
+          type: 'error',
+          text: authError?.message || 'Failed to create account.',
+        });
         setIsLoading(false);
         return;
       }
 
-      // 🚨 CRITICAL FIX: Check if Supabase actually logged the user in.
-      // If "Confirm Email" is ON in Supabase, authData.session will be null.
-      // RLS will BLOCK the baseline insert if there is no active session!
+      // If user session is not automatically active, sign them in with password
       if (!authData.session) {
-        // Attempt to log them in manually just in case
-        const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
-          email,
-          password
-        });
-        
+        const { data: loginData, error: loginError } =
+          await supabase.auth.signInWithPassword({
+            email: email.trim(),
+            password,
+          });
+
         if (loginError || !loginData.session) {
-            setStatus('❌ RLS BLOCKED: Email Confirmation is enabled in Supabase! You must confirm your email before the Database accepts your baseline, OR turn off Email Confirmations in Supabase Settings.');
-            setIsLoading(false);
-            return;
+          // If Supabase has email confirmation enabled
+          setStatusMessage({
+            type: 'info',
+            text: 'Confirmation link sent to your email. Please verify your email before continuing.',
+          });
+          setIsLoading(false);
+          return;
         }
       }
 
-      setStatus('Account created! Setting up your profile and baseline...');
-
-      // 2. Insert into user_profiles (Required for the Foreign Key constraint!)
-      const { error: profileError } = await supabase
+      // 2. Ensure profile exists with account_type via upsert (avoids duplicate key error)
+      await supabase
         .from('user_profiles')
-        .insert([{
-          user_id: authData.user.id,
-          email: email,
-          account_type: 'customer'
-        }]);
+        .upsert(
+          {
+            user_id: authData.user.id,
+            email: email.trim(),
+            account_type: 'Standard User',
+            behavioral_risk_score: 0,
+            hardware_enrolled: false,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id' }
+        );
 
-      if (profileError) {
-        console.error("Profile Insert Error:", profileError);
-        setStatus('❌ Failed to create user profile: ' + profileError.message);
-        setIsLoading(false);
-        return;
-      }
-
-      // 3. Store the Golden Baseline in Supabase
-      const mockVectorData = JSON.stringify({ 
-        keystrokes: [0.15, 0.22, 0.18], 
-        mouse: [250.5, 12.5, 100] 
-      });
-
-      // Insert into their existing golden_baselines table
-      // Note: We use stringified hex for bytea
-      const hexVector = Buffer.from(mockVectorData).toString('hex');
-      
-      const { error: dbError } = await supabase
-        .from('golden_baselines')
-        .insert([{
-          user_id: authData.user.id,
-          encrypted_vectors: `\\x${hexVector}`, 
-        }]);
-
-      if (dbError) {
-        console.error("Baseline Insert Error:", dbError);
-        setStatus('❌ Row Violation: ' + dbError.message);
-        setIsLoading(false);
-        return;
-      }
-
-      setStatus('✅ Success! Baseline calibrated. Redirecting to dashboard...');
-      
-      // 3. Redirect using Next.js router
-      setTimeout(() => {
-        router.push('/dashboard');
-      }, 1000);
-
+      setCreatedUser(authData.user);
+      setStep(2);
+      setStatusMessage(null);
     } catch (err: any) {
-      setStatus(`System Error: ${err.message}`);
+      console.error('Account creation error:', err);
+      setStatusMessage({
+        type: 'error',
+        text: err.message || 'An unexpected error occurred during signup.',
+      });
+    } finally {
       setIsLoading(false);
     }
   };
 
+  // Step 2: Register Biometric Device Passkey
+  const handleRegisterPasskey = async () => {
+    setIsLoading(true);
+    setStatusMessage({
+      type: 'info',
+      text: 'Touch your sensor or follow your device prompt (Windows Hello / Touch ID / Face ID)...',
+    });
+
+    try {
+      const { data: passkeyData, error: passkeyErr } = await registerPasskey(supabase, {
+        friendlyName: 'Primary Device Passkey',
+      });
+
+      if (passkeyErr) {
+        if (passkeyErr.name === 'NotAllowedError' || passkeyErr.message?.includes('not allowed')) {
+          setStatusMessage({
+            type: 'info',
+            text: 'Biometric prompt was cancelled. You can retry below or skip to dashboard.',
+          });
+          setIsLoading(false);
+          return;
+        }
+        throw passkeyErr;
+      }
+
+      // Update hardware_enrolled in user_profiles
+      if (createdUser?.id) {
+        await supabase
+          .from('user_profiles')
+          .update({
+            hardware_enrolled: true,
+            last_verified_at: new Date().toISOString(),
+          })
+          .eq('user_id', createdUser.id);
+
+        try {
+          await fetch('/api/auth/audit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              eventType: 'PASSKEY_REGISTERED',
+              metadata: {
+                friendly_name: 'Primary Device Passkey',
+                passkey_id: passkeyData?.id,
+              },
+            }),
+          });
+        } catch (auditErr) {
+          console.warn('Audit error:', auditErr);
+        }
+      }
+
+      setStatusMessage({
+        type: 'success',
+        text: 'Passkey registered successfully! Redirecting to your secure dashboard...',
+      });
+
+      setTimeout(() => {
+        router.push('/dashboard');
+        router.refresh();
+      }, 1000);
+    } catch (err: any) {
+      console.error('Passkey enrollment error:', err);
+      setStatusMessage({
+        type: 'error',
+        text: err.message || 'Could not register passkey on this device. You can skip for now.',
+      });
+      setIsLoading(false);
+    }
+  };
+
+  const handleSkipToDashboard = () => {
+    router.push('/dashboard');
+    router.refresh();
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl border border-slate-100 max-w-lg w-full p-8 overflow-hidden">
-        
+    <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 selection:bg-cyan-500 selection:text-black">
+      {/* Background Cyber Grid */}
+      <div className="fixed inset-0 pointer-events-none opacity-20 bg-[radial-gradient(#06b6d4_1px,transparent_1px)] [background-size:24px_24px]" />
+
+      <div className="relative w-full max-w-md z-10">
+        {/* Brand Header */}
         <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-slate-900">Create NexusID Account</h2>
-          <p className="text-sm text-slate-500 mt-2">
-            {step === 1 ? 'Step 1: Account Details' : step === 2 ? 'Step 2: Security Profiling' : 'Step 3: Calibration Complete'}
+          <Link href="/" className="inline-flex items-center gap-2 mb-3 group">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20 group-hover:scale-105 transition-transform">
+              <ShieldCheck className="w-6 h-6 text-slate-950" />
+            </div>
+            <span className="text-2xl font-bold tracking-tight text-white font-mono">
+              Nexus<span className="text-cyan-400">ID</span>
+            </span>
+          </Link>
+          <h1 className="text-xl font-bold text-slate-100">
+            {step === 1 ? 'Create Zero-Trust Account' : 'Enroll Device Passkey'}
+          </h1>
+          <p className="text-xs text-slate-400 mt-1">
+            {step === 1
+              ? 'Fast onboarding for modern, passwordless enterprise banking'
+              : 'Link your biometric authenticator for instantaneous passwordless access'}
           </p>
         </div>
 
-        <div className="w-full bg-slate-100 rounded-full h-2 mb-8">
-          <div className="bg-blue-600 h-2 rounded-full transition-all duration-500" style={{ width: `${(step / 3) * 100}%` }}></div>
-        </div>
+        {/* Card Container */}
+        <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl">
+          {/* Progress Indicator */}
+          <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-800 text-xs font-mono">
+            <div className="flex items-center gap-2">
+              <span
+                className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
+                  step === 1
+                    ? 'bg-cyan-500 text-slate-950'
+                    : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                }`}
+              >
+                1
+              </span>
+              <span className={step === 1 ? 'text-cyan-400 font-semibold' : 'text-slate-400'}>
+                Credentials
+              </span>
+            </div>
+            <div className="h-[1px] flex-1 mx-3 bg-slate-800" />
+            <div className="flex items-center gap-2">
+              <span
+                className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
+                  step === 2
+                    ? 'bg-cyan-500 text-slate-950'
+                    : 'bg-slate-800 text-slate-500'
+                }`}
+              >
+                2
+              </span>
+              <span className={step === 2 ? 'text-cyan-400 font-semibold' : 'text-slate-500'}>
+                Device Passkey
+              </span>
+            </div>
+          </div>
 
-        {step === 1 && (
-          <form onSubmit={handleNext} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Work Email</label>
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-lg border border-slate-300 p-3 text-slate-900 focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none" placeholder="john@bank.com" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Temporary Password (to register Passkey)</label>
-              <input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-lg border border-slate-300 p-3 text-slate-900 focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none" placeholder="••••••••" />
-            </div>
-            <button type="submit" className="w-full bg-slate-900 text-white font-medium py-3 rounded-xl hover:bg-slate-800 transition-colors mt-6">Continue</button>
-          </form>
-        )}
-
-        {step === 2 && (
-          <form onSubmit={handleNext} className="space-y-4">
-            <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-6">
-              <p className="text-sm text-blue-800 font-medium text-center mb-4">
-                To build your secure behavioral profile, please answer these security questions naturally.
-              </p>
-              
-              {/* LIVE TELEMETRY METER */}
-              <div className="bg-white rounded-lg p-3 border border-blue-200">
-                <div className="flex justify-between items-end mb-1">
-                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Baseline Integrity</span>
-                  <span className="text-xs font-bold text-blue-700">{Math.round(overallProgress)}%</span>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-1.5 mb-2">
-                  <div className="bg-blue-600 h-1.5 rounded-full transition-all duration-300" style={{ width: `${overallProgress}%` }}></div>
-                </div>
-                <div className="flex justify-between text-[10px] text-slate-400">
-                  <span>Keystrokes: {totalKeystrokes}/100</span>
-                  <span>Mouse Events: {totalMouseEvents}/200</span>
-                </div>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">What city were you born in?</label>
-              <input type="text" required value={q1} onChange={(e) => setQ1(e.target.value)} className="w-full rounded-lg border border-slate-300 p-3 text-slate-900 focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">What is your favorite book or movie?</label>
-              <input type="text" required value={q2} onChange={(e) => setQ2(e.target.value)} className="w-full rounded-lg border border-slate-300 p-3 text-slate-900 focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none" />
-            </div>
-            <button 
-              type="submit" 
-              disabled={overallProgress < 50}
-              className="w-full bg-slate-900 text-white font-medium py-3 rounded-xl hover:bg-slate-800 disabled:bg-slate-400 transition-colors mt-6"
+          {/* Status Alert */}
+          {statusMessage && (
+            <div
+              className={`mb-6 p-4 rounded-xl text-xs flex items-start gap-3 border ${
+                statusMessage.type === 'error'
+                  ? 'bg-rose-950/40 border-rose-800/60 text-rose-300'
+                  : statusMessage.type === 'success'
+                  ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
+                  : 'bg-cyan-950/40 border-cyan-800/60 text-cyan-300'
+              }`}
             >
-              {overallProgress < 50 ? 'Keep typing...' : 'Calibrate & Continue'}
-            </button>
-          </form>
-        )}
-
-        {step === 3 && (
-          <form onSubmit={handleSignUp} className="space-y-6">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+              <div className="mt-0.5">
+                {statusMessage.type === 'error' ? (
+                  <Lock className="w-4 h-4 text-rose-400" />
+                ) : statusMessage.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                ) : (
+                  <Fingerprint className="w-4 h-4 text-cyan-400" />
+                )}
               </div>
-              <h3 className="text-lg font-bold text-slate-900">Baseline Captured</h3>
-              <p className="text-slate-500 mt-2 text-sm">Your unique keystroke and mouse patterns have been encrypted and stored.</p>
+              <p className="flex-1 leading-relaxed">{statusMessage.text}</p>
             </div>
-            
-            <div className="flex items-start bg-slate-50 p-4 rounded-lg">
-              <input type="checkbox" id="terms" required checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-1 h-4 w-4 text-blue-600 rounded border-slate-300" disabled={isLoading} />
-              <label htmlFor="terms" className="ml-3 text-sm text-slate-600">
-                I agree to the Terms & Conditions. I understand my behavioral telemetry is encrypted at rest and used solely for Zero Trust authentication.
-              </label>
+          )}
+
+          {/* STEP 1: Account Setup */}
+          {step === 1 && (
+            <form onSubmit={handleCreateAccount} className="space-y-4">
+              <div>
+                <label className="block text-xs font-mono uppercase text-slate-400 mb-1.5">
+                  Work / Corporate Email
+                </label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="name@enterprise-bank.com"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-500 transition-colors"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono uppercase text-slate-400 mb-1.5">
+                  Initial Password
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••••••"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-500 transition-colors"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Used once to establish your cryptographic identity before passkey binding.
+                </p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full mt-2 py-3 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 font-semibold text-sm hover:from-cyan-400 hover:to-blue-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20 disabled:opacity-50"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Creating Identity...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Continue to Passkey Binding</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </form>
+          )}
+
+          {/* STEP 2: Biometric Device Passkey */}
+          {step === 2 && (
+            <div className="space-y-5 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mx-auto text-cyan-400 shadow-inner">
+                <Fingerprint className="w-8 h-8" />
+              </div>
+
+              <div>
+                <h3 className="text-base font-semibold text-white">
+                  Bind Hardware Passkey
+                </h3>
+                <p className="text-xs text-slate-400 mt-1.5 leading-relaxed max-w-sm mx-auto">
+                  Register your device&apos;s built-in authenticator (Windows Hello, Touch ID, Face ID)
+                  or a physical FIDO2 YubiKey for seamless, phishing-resistant logins.
+                </p>
+              </div>
+
+              <div className="pt-2 space-y-3">
+                <button
+                  type="button"
+                  onClick={handleRegisterPasskey}
+                  disabled={isLoading}
+                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 font-semibold text-sm hover:from-cyan-400 hover:to-blue-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20 disabled:opacity-50"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Waiting for Biometric Gesture...</span>
+                    </>
+                  ) : (
+                    <>
+                      <KeyRound className="w-4 h-4" />
+                      <span>Register Device Passkey & Enter</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSkipToDashboard}
+                  disabled={isLoading}
+                  className="w-full py-2.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                >
+                  Skip for now, continue to Dashboard →
+                </button>
+              </div>
             </div>
+          )}
 
-            <button type="submit" disabled={isLoading} className="w-full bg-blue-600 text-white font-medium py-3 rounded-xl hover:bg-blue-700 disabled:bg-blue-400 transition-colors shadow-sm flex justify-center items-center">
-              {isLoading ? 'Processing...' : 'Register Device Passkey & Finish'}
-            </button>
-            
-            {status && (
-              <p className={`text-sm text-center font-medium p-4 rounded-xl shadow-sm ${status.includes('Success') ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
-                {status}
-              </p>
-            )}
-          </form>
-        )}
-
-        <div className="mt-6 text-center">
-          <Link href="/auth/login" className="text-sm text-blue-600 hover:underline">Already have an account? Sign in</Link>
+          {/* Navigation Footer */}
+          <div className="mt-6 pt-4 border-t border-slate-800 text-center">
+            <Link
+              href="/login"
+              className="text-xs text-cyan-400 hover:text-cyan-300 font-medium transition-colors"
+            >
+              Already have an account? Sign in with Passkey →
+            </Link>
+          </div>
         </div>
       </div>
     </div>
