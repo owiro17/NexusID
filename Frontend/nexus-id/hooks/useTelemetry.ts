@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import type { ModelInferenceResult } from '@/lib/ml/onnxEngine';
 
 export type KeyEvent = {
   key: string;
@@ -15,17 +16,12 @@ export type MouseEventRecord = {
   timestamp: number;
 };
 
-export type TelemetryWindow = {
-  keys: KeyEvent[];
-  mouse: MouseEventRecord[];
-  windowStartTime: number;
-  windowEndTime: number;
-};
-
 export function useTelemetry(windowSizeMs = 5000, enabled = true) {
   const [currentRiskScore, setCurrentRiskScore] = useState<number>(0);
   const [totalKeystrokes, setTotalKeystrokes] = useState<number>(0);
   const [totalMouseEvents, setTotalMouseEvents] = useState<number>(0);
+  const [modelInference, setModelInference] = useState<ModelInferenceResult | null>(null);
+  const [isEvaluating, setIsEvaluating] = useState<boolean>(false);
 
   const keysBuffer = useRef<KeyEvent[]>([]);
   const mouseBuffer = useRef<MouseEventRecord[]>([]);
@@ -36,11 +32,71 @@ export function useTelemetry(windowSizeMs = 5000, enabled = true) {
   const cumulativeMouse = useRef<number>(0);
   const lastMouseSample = useRef<number>(0);
 
+  // Dispatch telemetry to ONNX model API
+  const dispatchTelemetry = useCallback(
+    async (keysToSend: KeyEvent[], mouseToSend: MouseEventRecord[]) => {
+      if (keysToSend.length === 0 && mouseToSend.length === 0) return;
+
+      setIsEvaluating(true);
+      try {
+        const now = Date.now();
+        const response = await fetch('/api/telemetry', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            keys: keysToSend,
+            mouse: mouseToSend,
+            windowStartTime: now - windowSizeMs,
+            windowEndTime: now,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (typeof data.risk_score === 'number') {
+            setCurrentRiskScore(data.risk_score);
+          }
+          if (data.model_inference) {
+            setModelInference(data.model_inference as ModelInferenceResult);
+          }
+        }
+      } catch (error) {
+        // Non-blocking background error
+      } finally {
+        setIsEvaluating(false);
+      }
+    },
+    [windowSizeMs]
+  );
+
+  // Trigger simulated bot telemetry through the real ONNX model API
+  const simulateBotTelemetry = useCallback(async () => {
+    const now = Date.now();
+    // Synthetic robotic mouse telemetry: ultra-fast, linear teleportation
+    const botMouse: MouseEventRecord[] = [];
+    for (let i = 0; i < 30; i++) {
+      botMouse.push({
+        x: 100 + i * 250,
+        y: 100 + i * 250,
+        type: 'mousemove',
+        timestamp: now + i * 2, // 2ms interval (inhuman speed)
+      });
+    }
+
+    // Synthetic robotic keystrokes: 0.005s hold time, 0.010s DD
+    const botKeys: KeyEvent[] = [];
+    for (let i = 0; i < 15; i++) {
+      botKeys.push({ key: 'x', type: 'keydown', timestamp: now + i * 15 });
+      botKeys.push({ key: 'x', type: 'keyup', timestamp: now + i * 15 + 4 });
+    }
+
+    await dispatchTelemetry(botKeys, botMouse);
+  }, [dispatchTelemetry]);
+
   useEffect(() => {
     if (!enabled) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't capture sensitive full text strings, only timing metrics
       keysBuffer.current.push({ key: e.key, type: 'keydown', timestamp: Date.now() });
       cumulativeKeys.current += 1;
     };
@@ -90,33 +146,11 @@ export function useTelemetry(windowSizeMs = 5000, enabled = true) {
       mouseBuffer.current = [];
       windowStart.current = now;
 
-      // Update counters once per window interval (NOT on every mousemove)
+      // Update counters once per window interval
       setTotalKeystrokes(cumulativeKeys.current);
       setTotalMouseEvents(cumulativeMouse.current);
 
-      if (keysToSend.length > 0 || mouseToSend.length > 0) {
-        try {
-          const response = await fetch('/api/telemetry', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              keys: keysToSend,
-              mouse: mouseToSend,
-              windowStartTime: now - windowSizeMs,
-              windowEndTime: now,
-            }),
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            if (typeof data.risk_score === 'number') {
-              setCurrentRiskScore(data.risk_score);
-            }
-          }
-        } catch (error) {
-          // Non-blocking background error
-        }
-      }
+      await dispatchTelemetry(keysToSend, mouseToSend);
     }, windowSizeMs);
 
     return () => {
@@ -127,7 +161,14 @@ export function useTelemetry(windowSizeMs = 5000, enabled = true) {
       window.removeEventListener('mouseup', handleMouseClick);
       clearInterval(intervalId);
     };
-  }, [windowSizeMs, enabled]);
+  }, [windowSizeMs, enabled, dispatchTelemetry]);
 
-  return { currentRiskScore, totalKeystrokes, totalMouseEvents };
+  return {
+    currentRiskScore,
+    totalKeystrokes,
+    totalMouseEvents,
+    modelInference,
+    isEvaluating,
+    simulateBotTelemetry,
+  };
 }

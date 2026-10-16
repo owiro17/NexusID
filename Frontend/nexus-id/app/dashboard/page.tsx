@@ -29,6 +29,9 @@ import {
   TrendingDown,
   Layers,
   Sparkles,
+  MousePointer,
+  Keyboard,
+  Binary,
 } from 'lucide-react';
 
 const INITIAL_CREDIT_BALANCE = 25000.0;
@@ -37,8 +40,15 @@ export default function DashboardPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  // Background Telemetry (buffered, non-blocking 5000ms window)
-  const { currentRiskScore: liveRiskScore } = useTelemetry(5000, true);
+  // Background Telemetry with live ONNX Runtime Model Inference
+  const {
+    currentRiskScore: liveRiskScore,
+    totalKeystrokes,
+    totalMouseEvents,
+    modelInference,
+    isEvaluating,
+    simulateBotTelemetry,
+  } = useTelemetry(5000, true);
 
   // Allow developer/tester to simulate anomaly or use live telemetry score
   const [simulatedRisk, setSimulatedRisk] = useState<number | null>(null);
@@ -325,13 +335,13 @@ export default function DashboardPage() {
         <div>
           <div className="flex items-center gap-2 text-cyan-400 text-xs font-mono mb-1">
             <Cpu className="w-3.5 h-3.5" />
-            <span>CONTINUOUS ZERO-TRUST CORE • LIVE TELEMETRY</span>
+            <span>CONTINUOUS ZERO-TRUST CORE • LIVE ONNX ML INFERENCE</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white font-sans">
             Banking & Liquidity Portal
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Real-time biometric trust scoring, hardware-bound access control, and live PostgreSQL ledger.
+            Real-time biometric trust scoring via ONNX Random Forest, hardware-bound passkeys, and live PostgreSQL ledger.
           </p>
         </div>
 
@@ -399,7 +409,7 @@ export default function DashboardPage() {
           }`}
         >
           <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-            <span className="font-mono uppercase tracking-wider">Continuous Risk Score</span>
+            <span className="font-mono uppercase tracking-wider">ML Continuous Risk</span>
             <span
               className={`p-1.5 rounded-lg border ${
                 isRiskHigh
@@ -438,53 +448,67 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Behavioral Telemetry & Testing Console */}
-      <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-6 shadow-xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+      {/* Behavioral Telemetry & Live ONNX Inference Console */}
+      <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-6 shadow-xl space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
-              <Sparkles className="w-5 h-5" />
+              <Binary className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-white">Continuous Behavioral Telemetry</h2>
-              <p className="text-xs text-slate-400">
-                Background keystroke intervals and mouse smoothness analyzed in real-time.
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold text-white">Edge ML Inference Engine</h2>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-cyan-950 border border-cyan-800/70 text-cyan-400 flex items-center gap-1">
+                  <span className={`w-1.5 h-1.5 rounded-full ${isEvaluating ? 'bg-amber-400 animate-ping' : 'bg-emerald-400'}`} />
+                  {modelInference?.engine || 'ONNX Runtime Active'}
+                </span>
+                {modelInference?.inference_time_ms !== undefined && (
+                  <span className="text-[11px] font-mono text-slate-400">
+                    ({modelInference.inference_time_ms}ms)
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Evaluates user typing rhythm and mouse kinematics in real-time through dual Random Forest classifiers.
               </p>
             </div>
           </div>
 
-          {/* Anomaly simulation triggers for interactive verification */}
+          {/* Interactive ML verification triggers */}
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500 font-mono hidden md:inline">Test Zero Trust:</span>
+            <span className="text-xs text-slate-500 font-mono hidden md:inline">Test Models:</span>
             <button
               type="button"
-              onClick={() => setSimulatedRisk(88)}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-950/60 border border-red-800/80 text-red-300 hover:bg-red-900/60 transition-colors cursor-pointer"
+              onClick={async () => {
+                await simulateBotTelemetry();
+              }}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-950/60 border border-red-800/80 text-red-300 hover:bg-red-900/60 transition-colors cursor-pointer flex items-center gap-1"
             >
-              Simulate Bot Anomaly (88%)
+              <Cpu className="w-3.5 h-3.5" />
+              <span>Simulate Bot Telemetry (ONNX)</span>
             </button>
-            {simulatedRisk !== null && (
+            {(simulatedRisk !== null || liveRiskScore > 40) && (
               <button
                 type="button"
-                onClick={() => setSimulatedRisk(null)}
+                onClick={() => setSimulatedRisk(0)}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors cursor-pointer"
               >
-                Reset to Live Telemetry
+                Reset Baseline (0%)
               </button>
             )}
           </div>
         </div>
 
-        {/* Progress Bar of Current Risk */}
-        <div className="space-y-2">
+        {/* Progress Bar of Current Continuous Risk */}
+        <div className="space-y-1.5">
           <div className="flex justify-between text-xs font-mono">
-            <span className="text-slate-400">Anomaly Index</span>
+            <span className="text-slate-400">Overall Imposter Probability (Risk Score)</span>
             <span
               className={
                 isRiskHigh ? 'text-red-400 font-bold' : isRiskMedium ? 'text-amber-400' : 'text-emerald-400'
               }
             >
-              {activeRiskScore}/100 {isRiskHigh ? '(Step-Up Threshold Exceeded >70)' : '(Permitted)'}
+              {activeRiskScore}% {isRiskHigh ? '(Step-Up Threshold Exceeded >70%)' : '(Normal Authorization)'}
             </span>
           </div>
           <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800">
@@ -494,6 +518,103 @@ export default function DashboardPage() {
               }`}
               style={{ width: `${Math.max(4, Math.min(100, activeRiskScore))}%` }}
             />
+          </div>
+        </div>
+
+        {/* Dual Modality Extracted Feature Tensors */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+          {/* Mouse Model Box */}
+          <div className="rounded-xl bg-slate-950/70 border border-slate-800/80 p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
+                <MousePointer className="w-4 h-4 text-cyan-400" />
+                <span>Mouse Kinematics (<code className="text-cyan-400">mouse.onnx</code>)</span>
+              </div>
+              <span
+                className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+                  (modelInference?.mouse.label ?? 0) === 0
+                    ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300'
+                    : 'bg-red-950/60 border-red-800 text-red-300'
+                }`}
+              >
+                {(modelInference?.mouse.label ?? 0) === 0 ? 'Class 0: Human' : 'Class 1: Anomaly'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-[11px] font-mono text-slate-400 mt-3">
+              <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Mean Velocity</span>
+                <span className="text-slate-200 font-bold">
+                  {modelInference?.mouse.features.mean_vel ?? 380} px/s
+                </span>
+              </div>
+              <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Max Velocity</span>
+                <span className="text-slate-200 font-bold">
+                  {modelInference?.mouse.features.max_vel ?? 2400} px/s
+                </span>
+              </div>
+              <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Idle Ratio</span>
+                <span className="text-slate-200 font-bold">
+                  {(((modelInference?.mouse.features.idle_pct ?? 0.15)) * 100).toFixed(0)}%
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 font-mono">
+              <span>Sampled Events: {totalMouseEvents}</span>
+              <span className="text-cyan-400">
+                Imposter Prob: {((modelInference?.mouse.imposter_prob ?? 0.15) * 100).toFixed(1)}%
+              </span>
+            </div>
+          </div>
+
+          {/* Keystroke Model Box */}
+          <div className="rounded-xl bg-slate-950/70 border border-slate-800/80 p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
+                <Keyboard className="w-4 h-4 text-emerald-400" />
+                <span>Keystroke Dynamics (<code className="text-emerald-400">keystroke.onnx</code>)</span>
+              </div>
+              <span
+                className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+                  (modelInference?.keystroke.label ?? 0) === 0
+                    ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300'
+                    : 'bg-red-950/60 border-red-800 text-red-300'
+                }`}
+              >
+                {(modelInference?.keystroke.label ?? 0) === 0 ? 'Class 0: Human' : 'Class 1: Anomaly'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-[11px] font-mono text-slate-400 mt-3">
+              <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Mean Hold (HT)</span>
+                <span className="text-slate-200 font-bold">
+                  {((modelInference?.keystroke.features.mean_hold ?? 0.115) * 1000).toFixed(0)} ms
+                </span>
+              </div>
+              <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Hold StdDev</span>
+                <span className="text-slate-200 font-bold">
+                  {((modelInference?.keystroke.features.std_hold ?? 0.025) * 1000).toFixed(0)} ms
+                </span>
+              </div>
+              <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Flight (UD)</span>
+                <span className="text-slate-200 font-bold">
+                  {((modelInference?.keystroke.features.mean_ud ?? 0.330) * 1000).toFixed(0)} ms
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 font-mono">
+              <span>Keystrokes: {totalKeystrokes}</span>
+              <span className="text-emerald-400">
+                Imposter Prob: {((modelInference?.keystroke.imposter_prob ?? 0.05) * 100).toFixed(1)}%
+              </span>
+            </div>
           </div>
         </div>
       </div>
