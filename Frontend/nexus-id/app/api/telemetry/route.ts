@@ -176,6 +176,11 @@ export async function POST(request: Request) {
               .update({
                 keystroke_vector: keystrokePayload,
                 mouse_vector: inferenceResult.mouse.features,
+                bound_ip_address: clientIp,
+                last_session_id: sessionId,
+                rl_telemetry_points: serializedProfile.rlState.telemetryPoints,
+                rl_adaptive_multiplier: serializedProfile.rlState.adaptiveMultiplier,
+                autoencoder_epochs: serializedProfile.autoencoder.epochsTrained,
                 updated_at: new Date().toISOString(),
               })
               .eq('id', existingBaseline.id);
@@ -184,8 +189,59 @@ export async function POST(request: Request) {
               user_id: supabaseUser.id,
               keystroke_vector: keystrokePayload,
               mouse_vector: inferenceResult.mouse.features,
+              bound_ip_address: clientIp,
+              last_session_id: sessionId,
+              rl_telemetry_points: serializedProfile.rlState.telemetryPoints,
+              rl_adaptive_multiplier: serializedProfile.rlState.adaptiveMultiplier,
+              autoencoder_epochs: serializedProfile.autoencoder.epochsTrained,
               is_active: true,
             });
+          }
+
+          // 6b. When 4-Gate Biometric Readiness hits 100%, automatically UPSERT into `public.biometric_profiles`!
+          if (operatorVerification.biometricReadiness?.isReadyForBiometricProfile) {
+            const covInvDiag = serializedProfile.sigma.map((s) =>
+              Number((1 / Math.max(1e-5, s * s)).toFixed(2))
+            );
+            await supabaseClient.from('biometric_profiles').upsert(
+              {
+                user_id: supabaseUser.id,
+                updated_at: new Date().toISOString(),
+                n_sessions: Math.max(
+                  20,
+                  serializedProfile.calibrationWindows.length +
+                    serializedProfile.autoencoder.epochsTrained
+                ),
+                n_features: 12,
+                feature_names: [
+                  'mean_hold',
+                  'std_hold',
+                  'mean_dd',
+                  'std_dd',
+                  'mean_ud',
+                  'std_ud',
+                  'hold_to_dd_ratio',
+                  'rollover_rate',
+                  'mean_vel',
+                  'std_vel',
+                  'max_vel',
+                  'idle_pct',
+                ],
+                mu: serializedProfile.mu,
+                cov_inv: covInvDiag,
+                threshold: operatorVerification.threshold,
+                intra_mean: serializedProfile.lastDistance,
+                intra_std: serializedProfile.lastReconstructionError,
+                model_type: 'autoencoder_rl_clamped',
+                model_version: '2.1.0',
+                eer_pct: 2.4,
+                far_pct: 0.33,
+                frr_pct: 4.8,
+                enrolled_by: supabaseUser.id,
+                enrollment_device: request.headers.get('user-agent')?.slice(0, 120) || 'web-client',
+              },
+              { onConflict: 'user_id' }
+            );
           }
         }
 

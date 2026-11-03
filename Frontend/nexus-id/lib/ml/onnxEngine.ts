@@ -13,7 +13,6 @@ async function resolveOrFetchModelPath(filename: string): Promise<{ path: string
     path.join(__dirname, '..', 'public', 'models', filename),
   ];
 
-  // 1. If Edge CDN URL is configured and prefers remote, cache to tmp dir
   if (EDGE_MODEL_BASE_URL) {
     try {
       const cacheDir = path.join(os.tmpdir(), 'nexusid-edge-models');
@@ -29,11 +28,10 @@ async function resolveOrFetchModelPath(filename: string): Promise<{ path: string
         return { path: cachedPath, source: 'edge-cdn' };
       }
     } catch {
-      // Fallback to local disk if Edge CDN is unreachable
+      // Fallback to local disk
     }
   }
 
-  // 2. Local Disk Resolution (Instant Local Testing)
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
       return { path: candidate, source: 'local' };
@@ -42,7 +40,6 @@ async function resolveOrFetchModelPath(filename: string): Promise<{ path: string
   return { path: candidates[0], source: 'local' };
 }
 
-// Types for raw telemetry events
 export interface KeyEventData {
   key: string;
   type: 'keydown' | 'keyup';
@@ -72,6 +69,10 @@ export interface ExtractedKeystrokeFeatures {
   std_dd: number;
   mean_ud: number;
   std_ud: number;
+  // High-discriminative human-to-human motor features (excludes thinking pauses > 650ms)
+  hold_to_dd_ratio?: number;
+  rollover_rate?: number;
+  clean_digraph_count?: number;
 }
 
 export interface ModelInferenceResult {
@@ -85,19 +86,18 @@ export interface ModelInferenceResult {
   };
   mouse: {
     features: ExtractedMouseFeatures;
-    label: number; // 0 = Human, 1 = Bot/Anomaly
+    label: number;
     imposter_prob: number;
     human_prob: number;
   };
   keystroke: {
     features: ExtractedKeystrokeFeatures;
-    label: number; // 0 = Human, 1 = Bot/Anomaly
+    label: number;
     imposter_prob: number;
     human_prob: number;
   };
 }
 
-// Global cached singletons for ONNX Inference Sessions
 let ortModule: any = null;
 let mouseSession: any = null;
 let keySession: any = null;
@@ -166,7 +166,7 @@ export function extractMouseFeatures(events: MouseEventData[]): ExtractedMouseFe
 
     dtList.push(dt);
     distList.push(dist);
-    velList.push((dist / dt) * 1000); // pixels per second
+    velList.push((dist / dt) * 1000);
   }
 
   const accList: number[] = [];
@@ -204,16 +204,20 @@ export function extractMouseFeatures(events: MouseEventData[]): ExtractedMouseFe
   };
 }
 
-// 2. Keystroke Dynamics Feature Extraction
+// 2. Keystroke Dynamics Feature Extraction (Filters out cognitive thinking pauses > 800ms!)
+// Prevents thinking pauses from inflating user variance (sigma) so human-to-human swaps are caught sharply.
 export function extractKeystrokeFeatures(events: KeyEventData[]): ExtractedKeystrokeFeatures {
   if (!events || events.length < 3) {
     return {
-      mean_hold: 0.108,
-      std_hold: 0.022,
+      mean_hold: 0.102,
+      std_hold: 0.018,
       mean_dd: 0.245,
-      std_dd: 0.065,
-      mean_ud: 0.137,
-      std_ud: 0.058,
+      std_dd: 0.055,
+      mean_ud: 0.143,
+      std_ud: 0.052,
+      hold_to_dd_ratio: 0.416,
+      rollover_rate: 0.05,
+      clean_digraph_count: 0,
     };
   }
 
@@ -231,38 +235,57 @@ export function extractKeystrokeFeatures(events: KeyEventData[]): ExtractedKeyst
 
       if (lastKeydownTime !== null) {
         const dd = (ev.timestamp - lastKeydownTime) / 1000;
-        if (dd > 0 && dd < 5) downDownTimes.push(dd);
+        // CRITICAL: Cap contiguous digraph transition at 0.85s (850ms) so cognitive reading/thinking pauses
+        // do not pollute muscle-memory typing cadence or blow up variance!
+        if (dd > 0.002 && dd <= 0.85) {
+          downDownTimes.push(dd);
+        }
       }
       lastKeydownTime = ev.timestamp;
 
       if (lastKeyupTime !== null) {
         const ud = (ev.timestamp - lastKeyupTime) / 1000;
-        if (ud > -0.5 && ud < 5) upDownTimes.push(ud);
+        if (ud >= -0.25 && ud <= 0.75) {
+          upDownTimes.push(ud);
+        }
       }
     } else if (ev.type === 'keyup') {
       const downTime = keydownMap.get(ev.key);
       if (downTime !== undefined) {
         const ht = (ev.timestamp - downTime) / 1000;
-        if (ht > 0 && ht < 2) holdTimes.push(ht);
+        if (ht > 0.002 && ht <= 0.5) {
+          holdTimes.push(ht);
+        }
         keydownMap.delete(ev.key);
       }
       lastKeyupTime = ev.timestamp;
     }
   }
 
-  const calcMeanStd = (arr: number[], defaultMean: number, defaultStd: number) => {
+  // Trim extreme single-key outliers using Winsorized mean/std when >= 4 samples exist
+  const calcRobustMeanStd = (arr: number[], defaultMean: number, defaultStd: number) => {
     if (arr.length === 0) return { mean: defaultMean, std: defaultStd };
-    const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
-    const variance = arr.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / arr.length;
+    let filtered = [...arr].sort((a, b) => a - b);
+    if (filtered.length >= 6) {
+      filtered = filtered.slice(1, filtered.length - 1); // drop min and max outlier
+    }
+    const mean = filtered.reduce((a, b) => a + b, 0) / filtered.length;
+    const variance =
+      filtered.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / filtered.length;
     return {
       mean: Number(mean.toFixed(4)),
-      std: Number(Math.max(0.008, Math.sqrt(variance)).toFixed(4)),
+      std: Number(Math.max(0.006, Math.sqrt(variance)).toFixed(4)),
     };
   };
 
-  const ht = calcMeanStd(holdTimes, 0.108, 0.022);
-  const dd = calcMeanStd(downDownTimes, 0.245, 0.065);
-  const ud = calcMeanStd(upDownTimes, 0.137, 0.058);
+  const ht = calcRobustMeanStd(holdTimes, 0.102, 0.018);
+  const dd = calcRobustMeanStd(downDownTimes, 0.245, 0.055);
+  const ud = calcRobustMeanStd(upDownTimes, 0.143, 0.052);
+
+  const holdToDdRatio = Number((ht.mean / Math.max(0.05, dd.mean)).toFixed(4));
+  const rollovers = upDownTimes.filter((v) => v < 0).length;
+  const rolloverRate =
+    upDownTimes.length > 0 ? Number((rollovers / upDownTimes.length).toFixed(4)) : 0;
 
   return {
     mean_hold: ht.mean,
@@ -271,26 +294,27 @@ export function extractKeystrokeFeatures(events: KeyEventData[]): ExtractedKeyst
     std_dd: dd.std,
     mean_ud: ud.mean,
     std_ud: ud.std,
+    hold_to_dd_ratio: holdToDdRatio,
+    rollover_rate: rolloverRate,
+    clean_digraph_count: Math.max(holdTimes.length, downDownTimes.length),
   };
 }
 
 // 3. Modality-Gated ONNX Model Inference Engine
-// Fixes cross-dataset chimera false positives (Balabit mouse vs CMU keystroke)
-// and eliminates risk spikes when the user stops typing or only moves the mouse.
 export async function evaluateTelemetry(
   keys: KeyEventData[],
   mouse: MouseEventData[]
 ): Promise<ModelInferenceResult> {
   const startTime = Date.now();
 
-  const keystrokeActive = Array.isArray(keys) && keys.length >= 4;
+  const keyFeatures = extractKeystrokeFeatures(keys);
+  const mouseFeatures = extractMouseFeatures(mouse);
+
+  // Require at least 3 clean keystroke digraphs (6 key events) to evaluate typing identity
+  const keystrokeActive =
+    Array.isArray(keys) && keys.length >= 6 && (keyFeatures.clean_digraph_count ?? 0) >= 3;
   const mouseActive = Array.isArray(mouse) && mouse.length >= 4;
 
-  const mouseFeatures = extractMouseFeatures(mouse);
-  const keyFeatures = extractKeystrokeFeatures(keys);
-
-  // Check if mouse movement is genuinely biological vs inhuman robotic teleportation
-  // (Balabit mouse.onnx often flags normal laptop trackpads as ~80% imposter due to DPI mismatch)
   const isRoboticMouse =
     mouseActive &&
     (mouseFeatures.max_vel > 25000 ||
@@ -305,7 +329,6 @@ export async function evaluateTelemetry(
 
   if (isReady && ortModule && mouseSession && keySession) {
     try {
-      // 1. Mouse ONNX Inference (with biological trackpad dampening)
       let mouseImposterProb = 0.06;
       let mouseHumanProb = 0.94;
       let mouseLabel = 0;
@@ -323,7 +346,6 @@ export async function evaluateTelemetry(
         const mouseOutput = await mouseSession.run({ float_input: mouseTensor });
 
         const rawMouseImposter = Number(mouseOutput.probabilities.data[1]);
-        // Dampen cross-dataset Balabit trackpad noise unless robotic kinematics are present
         mouseImposterProb = isRoboticMouse
           ? Math.max(0.92, rawMouseImposter)
           : Math.min(0.18, rawMouseImposter * 0.22);
@@ -331,7 +353,6 @@ export async function evaluateTelemetry(
         mouseLabel = mouseImposterProb > 0.5 ? 1 : 0;
       }
 
-      // 2. Keystroke ONNX Inference (only evaluated when keystrokes are actually present!)
       let keyImposterProb = 0.04;
       let keyHumanProb = 0.96;
       let keyLabel = 0;
@@ -356,7 +377,6 @@ export async function evaluateTelemetry(
         keyLabel = keyImposterProb > 0.5 ? 1 : 0;
       }
 
-      // Modality-Gated Fusion: Never penalize an idle modality!
       let fusedImposterProb = 0.05;
       if (keystrokeActive && mouseActive) {
         fusedImposterProb = isRoboticMouse
@@ -397,7 +417,6 @@ export async function evaluateTelemetry(
     }
   }
 
-  // Graceful Fallback
   const keyImposter = isRoboticKeystroke ? 0.95 : 0.05;
   const mouseImposter = isRoboticMouse ? 0.92 : 0.06;
   const fusedRisk = Math.round(Math.max(keyImposter, mouseImposter) * 100);

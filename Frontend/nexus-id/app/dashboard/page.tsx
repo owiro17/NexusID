@@ -690,9 +690,18 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className="bg-slate-900/90 px-3 py-2 rounded-lg border border-slate-800/80">
-                <span className="text-[10px] text-slate-500 block">Baseline Storage</span>
-                <span className="text-cyan-400 font-bold">
-                  Supabase + Edge
+                <span className="text-[10px] text-slate-500 block">Profile DB Readiness</span>
+                <span
+                  className={`font-bold ${
+                    operatorVerification.biometricReadiness?.isReadyForBiometricProfile
+                      ? 'text-emerald-400'
+                      : 'text-amber-400'
+                  }`}
+                  title={`Clean Digraphs: ${operatorVerification.biometricReadiness?.cleanDigraphsCollected ?? 0}/60 | Sibling Separability D_M: ${operatorVerification.biometricReadiness?.impostorSeparabilityScore ?? 0}`}
+                >
+                  {operatorVerification.biometricReadiness?.isReadyForBiometricProfile
+                    ? `LOCKED (${operatorVerification.biometricReadiness.cleanDigraphsCollected} keys)`
+                    : `${operatorVerification.biometricReadiness?.readinessPercent ?? 50}% Ready`}
                 </span>
               </div>
             </div>
@@ -1023,9 +1032,9 @@ export default function DashboardPage() {
                   </button>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="nexus-minimal-scroller max-h-[340px] overflow-y-auto overflow-x-auto rounded-xl border border-slate-800/60">
                   <table className="w-full text-left text-xs text-slate-300">
-                    <thead className="bg-slate-950/80 text-slate-400 uppercase tracking-wider font-mono text-[10px] border-b border-slate-800">
+                    <thead className="sticky top-0 z-10 bg-slate-950/95 backdrop-blur-sm text-slate-400 uppercase tracking-wider font-mono text-[10px] border-b border-slate-800">
                       <tr>
                         <th className="py-3 px-3">Target Account / Memo</th>
                         <th className="py-3 px-3">Date</th>
