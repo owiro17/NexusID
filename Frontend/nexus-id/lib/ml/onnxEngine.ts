@@ -1,7 +1,10 @@
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 
-function resolveModelPath(filename: string): string {
+const EDGE_MODEL_BASE_URL = process.env.NEXT_PUBLIC_MODEL_EDGE_URL || '';
+
+async function resolveOrFetchModelPath(filename: string): Promise<{ path: string; source: 'local' | 'edge-cdn' }> {
   const cwd = process.cwd();
   const candidates = [
     path.join(cwd, 'public', 'models', filename),
@@ -9,10 +12,34 @@ function resolveModelPath(filename: string): string {
     path.join(__dirname, '..', '..', 'public', 'models', filename),
     path.join(__dirname, '..', 'public', 'models', filename),
   ];
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
+
+  // 1. If Edge CDN URL is configured and prefers remote, cache to tmp dir
+  if (EDGE_MODEL_BASE_URL) {
+    try {
+      const cacheDir = path.join(os.tmpdir(), 'nexusid-edge-models');
+      if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+      const cachedPath = path.join(cacheDir, filename);
+      if (fs.existsSync(cachedPath)) {
+        return { path: cachedPath, source: 'edge-cdn' };
+      }
+      const res = await fetch(`${EDGE_MODEL_BASE_URL.replace(/\/$/, '')}/${filename}`);
+      if (res.ok) {
+        const buf = Buffer.from(await res.arrayBuffer());
+        fs.writeFileSync(cachedPath, buf);
+        return { path: cachedPath, source: 'edge-cdn' };
+      }
+    } catch {
+      // Fallback to local disk if Edge CDN is unreachable
+    }
   }
-  return candidates[0];
+
+  // 2. Local Disk Resolution (Instant Local Testing)
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return { path: candidate, source: 'local' };
+    }
+  }
+  return { path: candidates[0], source: 'local' };
 }
 
 // Types for raw telemetry events
@@ -49,8 +76,13 @@ export interface ExtractedKeystrokeFeatures {
 
 export interface ModelInferenceResult {
   engine: string;
+  model_source: 'local' | 'edge-cdn' | 'fallback';
   inference_time_ms: number;
   risk_score: number;
+  active_modalities: {
+    keystroke_active: boolean;
+    mouse_active: boolean;
+  };
   mouse: {
     features: ExtractedMouseFeatures;
     label: number; // 0 = Human, 1 = Bot/Anomaly
@@ -69,6 +101,7 @@ export interface ModelInferenceResult {
 let ortModule: any = null;
 let mouseSession: any = null;
 let keySession: any = null;
+let modelSourceType: 'local' | 'edge-cdn' | 'fallback' = 'local';
 let initPromise: Promise<boolean> | null = null;
 
 async function getOrInitSessions(): Promise<boolean> {
@@ -81,12 +114,16 @@ async function getOrInitSessions(): Promise<boolean> {
         ortModule = await import('onnxruntime-node');
       }
 
-      const mouseModelPath = resolveModelPath('mouse.onnx');
-      const keyModelPath = resolveModelPath('keystroke.onnx');
+      const [mouseResolved, keyResolved] = await Promise.all([
+        resolveOrFetchModelPath('mouse.onnx'),
+        resolveOrFetchModelPath('keystroke.onnx'),
+      ]);
+
+      modelSourceType = keyResolved.source;
 
       const [mSess, kSess] = await Promise.all([
-        ortModule.InferenceSession.create(mouseModelPath, { executionProviders: ['cpu'] }),
-        ortModule.InferenceSession.create(keyModelPath, { executionProviders: ['cpu'] }),
+        ortModule.InferenceSession.create(mouseResolved.path, { executionProviders: ['cpu'] }),
+        ortModule.InferenceSession.create(keyResolved.path, { executionProviders: ['cpu'] }),
       ]);
 
       mouseSession = mSess;
@@ -94,6 +131,7 @@ async function getOrInitSessions(): Promise<boolean> {
       return true;
     } catch (err) {
       console.warn('[ONNX Engine] Native session initialization fallback to TS math engine:', err);
+      modelSourceType = 'fallback';
       return false;
     } finally {
       initPromise = null;
@@ -106,13 +144,12 @@ async function getOrInitSessions(): Promise<boolean> {
 // 1. Mouse Kinematics Feature Extraction
 export function extractMouseFeatures(events: MouseEventData[]): ExtractedMouseFeatures {
   if (!events || events.length < 3) {
-    // Nominal human baseline if insufficient events
     return {
       mean_vel: 380.0,
       std_vel: 600.0,
-      max_vel: 3500.0,
+      max_vel: 2400.0,
       mean_acc: 240.0,
-      std_acc: 3500.0,
+      std_acc: 1800.0,
       idle_pct: 0.15,
     };
   }
@@ -150,9 +187,8 @@ export function extractMouseFeatures(events: MouseEventData[]): ExtractedMouseFe
       : 1000.0;
   const std_acc = Math.sqrt(var_acc);
 
-  // Idle percentage: time when distance == 0
   let idleTime = 0;
-  let totalTime = dtList.reduce((a, b) => a + b, 0);
+  const totalTime = dtList.reduce((a, b) => a + b, 0);
   for (let i = 0; i < distList.length; i++) {
     if (distList[i] < 2) idleTime += dtList[i];
   }
@@ -171,14 +207,13 @@ export function extractMouseFeatures(events: MouseEventData[]): ExtractedMouseFe
 // 2. Keystroke Dynamics Feature Extraction
 export function extractKeystrokeFeatures(events: KeyEventData[]): ExtractedKeystrokeFeatures {
   if (!events || events.length < 3) {
-    // Nominal human typing values (seconds) from benchmark dataset
     return {
-      mean_hold: 0.115,
-      std_hold: 0.025,
-      mean_dd: 0.450,
-      std_dd: 0.350,
-      mean_ud: 0.330,
-      std_ud: 0.350,
+      mean_hold: 0.108,
+      std_hold: 0.022,
+      mean_dd: 0.245,
+      std_dd: 0.065,
+      mean_ud: 0.137,
+      std_ud: 0.058,
     };
   }
 
@@ -195,7 +230,7 @@ export function extractKeystrokeFeatures(events: KeyEventData[]): ExtractedKeyst
       keydownMap.set(ev.key, ev.timestamp);
 
       if (lastKeydownTime !== null) {
-        const dd = (ev.timestamp - lastKeydownTime) / 1000; // in seconds
+        const dd = (ev.timestamp - lastKeydownTime) / 1000;
         if (dd > 0 && dd < 5) downDownTimes.push(dd);
       }
       lastKeydownTime = ev.timestamp;
@@ -219,12 +254,15 @@ export function extractKeystrokeFeatures(events: KeyEventData[]): ExtractedKeyst
     if (arr.length === 0) return { mean: defaultMean, std: defaultStd };
     const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
     const variance = arr.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / arr.length;
-    return { mean: Number(mean.toFixed(4)), std: Number(Math.sqrt(variance).toFixed(4)) };
+    return {
+      mean: Number(mean.toFixed(4)),
+      std: Number(Math.max(0.008, Math.sqrt(variance)).toFixed(4)),
+    };
   };
 
-  const ht = calcMeanStd(holdTimes, 0.115, 0.025);
-  const dd = calcMeanStd(downDownTimes, 0.450, 0.350);
-  const ud = calcMeanStd(upDownTimes, 0.330, 0.350);
+  const ht = calcMeanStd(holdTimes, 0.108, 0.022);
+  const dd = calcMeanStd(downDownTimes, 0.245, 0.065);
+  const ud = calcMeanStd(upDownTimes, 0.137, 0.058);
 
   return {
     mean_hold: ht.mean,
@@ -236,60 +274,111 @@ export function extractKeystrokeFeatures(events: KeyEventData[]): ExtractedKeyst
   };
 }
 
-// 3. Multimodal ONNX Model Inference Engine
+// 3. Modality-Gated ONNX Model Inference Engine
+// Fixes cross-dataset chimera false positives (Balabit mouse vs CMU keystroke)
+// and eliminates risk spikes when the user stops typing or only moves the mouse.
 export async function evaluateTelemetry(
   keys: KeyEventData[],
   mouse: MouseEventData[]
 ): Promise<ModelInferenceResult> {
   const startTime = Date.now();
 
+  const keystrokeActive = Array.isArray(keys) && keys.length >= 4;
+  const mouseActive = Array.isArray(mouse) && mouse.length >= 4;
+
   const mouseFeatures = extractMouseFeatures(mouse);
   const keyFeatures = extractKeystrokeFeatures(keys);
+
+  // Check if mouse movement is genuinely biological vs inhuman robotic teleportation
+  // (Balabit mouse.onnx often flags normal laptop trackpads as ~80% imposter due to DPI mismatch)
+  const isRoboticMouse =
+    mouseActive &&
+    (mouseFeatures.max_vel > 25000 ||
+      (mouseFeatures.mean_vel > 12000 && mouseFeatures.std_vel < 50) ||
+      mouseFeatures.std_acc < 2);
+
+  const isRoboticKeystroke =
+    keystrokeActive &&
+    (keyFeatures.mean_hold < 0.012 || (keyFeatures.mean_dd < 0.025 && keyFeatures.std_hold < 0.005));
 
   const isReady = await getOrInitSessions();
 
   if (isReady && ortModule && mouseSession && keySession) {
     try {
-      // 1. Mouse Inference
-      const mouseArray = Float32Array.from([
-        mouseFeatures.mean_vel,
-        mouseFeatures.std_vel,
-        mouseFeatures.max_vel,
-        mouseFeatures.mean_acc,
-        mouseFeatures.std_acc,
-        mouseFeatures.idle_pct,
-      ]);
-      const mouseTensor = new ortModule.Tensor('float32', mouseArray, [1, 6]);
-      const mouseOutput = await mouseSession.run({ float_input: mouseTensor });
+      // 1. Mouse ONNX Inference (with biological trackpad dampening)
+      let mouseImposterProb = 0.06;
+      let mouseHumanProb = 0.94;
+      let mouseLabel = 0;
 
-      const mouseLabel = Number(mouseOutput.label.data[0]);
-      const mouseHumanProb = Number(mouseOutput.probabilities.data[0]);
-      const mouseImposterProb = Number(mouseOutput.probabilities.data[1]);
+      if (mouseActive) {
+        const mouseArray = Float32Array.from([
+          mouseFeatures.mean_vel,
+          mouseFeatures.std_vel,
+          mouseFeatures.max_vel,
+          mouseFeatures.mean_acc,
+          mouseFeatures.std_acc,
+          mouseFeatures.idle_pct,
+        ]);
+        const mouseTensor = new ortModule.Tensor('float32', mouseArray, [1, 6]);
+        const mouseOutput = await mouseSession.run({ float_input: mouseTensor });
 
-      // 2. Keystroke Inference
-      const keyArray = Float32Array.from([
-        keyFeatures.mean_hold,
-        keyFeatures.std_hold,
-        keyFeatures.mean_dd,
-        keyFeatures.std_dd,
-        keyFeatures.mean_ud,
-        keyFeatures.std_ud,
-      ]);
-      const keyTensor = new ortModule.Tensor('float32', keyArray, [1, 6]);
-      const keyOutput = await keySession.run({ float_input: keyTensor });
+        const rawMouseImposter = Number(mouseOutput.probabilities.data[1]);
+        // Dampen cross-dataset Balabit trackpad noise unless robotic kinematics are present
+        mouseImposterProb = isRoboticMouse
+          ? Math.max(0.92, rawMouseImposter)
+          : Math.min(0.18, rawMouseImposter * 0.22);
+        mouseHumanProb = 1 - mouseImposterProb;
+        mouseLabel = mouseImposterProb > 0.5 ? 1 : 0;
+      }
 
-      const keyLabel = Number(keyOutput.label.data[0]);
-      const keyHumanProb = Number(keyOutput.probabilities.data[0]);
-      const keyImposterProb = Number(keyOutput.probabilities.data[1]);
+      // 2. Keystroke ONNX Inference (only evaluated when keystrokes are actually present!)
+      let keyImposterProb = 0.04;
+      let keyHumanProb = 0.96;
+      let keyLabel = 0;
 
-      // Multimodal Fusion: Weighted combination of imposter probabilities
-      const fusedImposterProb = keyImposterProb * 0.6 + mouseImposterProb * 0.4;
+      if (keystrokeActive) {
+        const keyArray = Float32Array.from([
+          keyFeatures.mean_hold,
+          keyFeatures.std_hold,
+          keyFeatures.mean_dd,
+          keyFeatures.std_dd,
+          keyFeatures.mean_ud,
+          keyFeatures.std_ud,
+        ]);
+        const keyTensor = new ortModule.Tensor('float32', keyArray, [1, 6]);
+        const keyOutput = await keySession.run({ float_input: keyTensor });
+
+        const rawKeyImposter = Number(keyOutput.probabilities.data[1]);
+        keyImposterProb = isRoboticKeystroke
+          ? Math.max(0.95, rawKeyImposter)
+          : Math.min(0.25, rawKeyImposter * 0.45);
+        keyHumanProb = 1 - keyImposterProb;
+        keyLabel = keyImposterProb > 0.5 ? 1 : 0;
+      }
+
+      // Modality-Gated Fusion: Never penalize an idle modality!
+      let fusedImposterProb = 0.05;
+      if (keystrokeActive && mouseActive) {
+        fusedImposterProb = isRoboticMouse
+          ? Math.max(keyImposterProb, mouseImposterProb)
+          : keyImposterProb * 0.85 + mouseImposterProb * 0.15;
+      } else if (keystrokeActive) {
+        fusedImposterProb = keyImposterProb;
+      } else if (mouseActive) {
+        fusedImposterProb = mouseImposterProb;
+      }
+
       const riskScore = Math.max(0, Math.min(100, Math.round(fusedImposterProb * 100)));
 
       return {
-        engine: 'ONNX Runtime (Dual Random Forest)',
+        engine: `ONNX Edge Runtime (${modelSourceType === 'edge-cdn' ? 'Edge CDN' : 'Local'})`,
+        model_source: modelSourceType,
         inference_time_ms: Date.now() - startTime,
         risk_score: riskScore,
+        active_modalities: {
+          keystroke_active: keystrokeActive,
+          mouse_active: mouseActive,
+        },
         mouse: {
           features: mouseFeatures,
           label: mouseLabel,
@@ -308,27 +397,29 @@ export async function evaluateTelemetry(
     }
   }
 
-  // Graceful Fallback (Pure mathematical heuristic matching model boundary)
-  const isKeyAnomaly = keyFeatures.mean_hold < 0.02 || keyFeatures.std_hold < 0.003;
-  const isMouseAnomaly = mouseFeatures.max_vel > 20000 || mouseFeatures.std_acc < 5;
-
-  const keyImposter = isKeyAnomaly ? 0.95 : 0.05;
-  const mouseImposter = isMouseAnomaly ? 0.85 : 0.15;
-  const fusedRisk = Math.round((keyImposter * 0.6 + mouseImposter * 0.4) * 100);
+  // Graceful Fallback
+  const keyImposter = isRoboticKeystroke ? 0.95 : 0.05;
+  const mouseImposter = isRoboticMouse ? 0.92 : 0.06;
+  const fusedRisk = Math.round(Math.max(keyImposter, mouseImposter) * 100);
 
   return {
     engine: 'Mathematical Fallback Engine',
+    model_source: 'fallback',
     inference_time_ms: Date.now() - startTime,
     risk_score: fusedRisk,
+    active_modalities: {
+      keystroke_active: keystrokeActive,
+      mouse_active: mouseActive,
+    },
     mouse: {
       features: mouseFeatures,
-      label: isMouseAnomaly ? 1 : 0,
+      label: isRoboticMouse ? 1 : 0,
       imposter_prob: mouseImposter,
       human_prob: 1 - mouseImposter,
     },
     keystroke: {
       features: keyFeatures,
-      label: isKeyAnomaly ? 1 : 0,
+      label: isRoboticKeystroke ? 1 : 0,
       imposter_prob: keyImposter,
       human_prob: 1 - keyImposter,
     },

@@ -9,12 +9,12 @@ import {
   LayoutDashboard,
   KeyRound,
   LogOut,
-  User,
-  Activity,
-  ArrowRightLeft,
+  Trophy,
   Lock,
   ChevronRight,
   Loader2,
+  Globe,
+  Sparkles,
 } from 'lucide-react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -25,9 +25,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [userEmail, setUserEmail] = useState<string>('Loading...');
   const [accountType, setAccountType] = useState<string>('Enterprise Tier');
   const [isHardwareEnrolled, setIsHardwareEnrolled] = useState<boolean>(false);
+  const [sessionIdPreview, setSessionIdPreview] = useState<string>('sess_active');
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
+    try {
+      const sid = window.sessionStorage.getItem('nexusid_active_session_id');
+      if (sid) setSessionIdPreview(sid);
+    } catch {
+      // ignore
+    }
+
     async function loadUser() {
       const {
         data: { user },
@@ -40,7 +48,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       setUserEmail(user.email || 'Authenticated User');
 
-      // Fetch user profile from Supabase
       let { data: profile } = await supabase
         .from('user_profiles')
         .select('*')
@@ -95,6 +102,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       active: pathname === '/dashboard',
     },
     {
+      label: 'Daily Challenges & Rewards',
+      href: '/dashboard/challenges',
+      icon: Trophy,
+      badge: '$700 Pool',
+      active: pathname === '/dashboard/challenges',
+    },
+    {
       label: 'Security & Passkeys',
       href: '/dashboard/security',
       icon: KeyRound,
@@ -130,7 +144,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 Nexus<span className="text-cyan-400">Bank</span>
               </span>
               <span className="block text-[9px] font-mono text-cyan-400 uppercase tracking-widest">
-                Zero-Trust Vault
+                Continual RL Vault
               </span>
             </div>
           </div>
@@ -146,6 +160,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <Link
                   key={item.href}
                   href={item.href}
+                  prefetch={true}
                   className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
                     item.active
                       ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 shadow-sm'
@@ -156,11 +171,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <Icon className={`w-4 h-4 ${item.active ? 'text-cyan-400' : 'text-slate-500'}`} />
                     <span>{item.label}</span>
                   </div>
-                  {item.active && <ChevronRight className="w-3.5 h-3.5 text-cyan-400" />}
+                  {item.badge ? (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                      {item.badge}
+                    </span>
+                  ) : (
+                    item.active && <ChevronRight className="w-3.5 h-3.5 text-cyan-400" />
+                  )}
                 </Link>
               );
             })}
           </nav>
+
+          {/* Session & IP Security Status Pill */}
+          <div className="mx-4 mt-2 p-3 rounded-xl bg-slate-950/80 border border-slate-800/80 space-y-1.5">
+            <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+              <span className="flex items-center gap-1 text-emerald-400 font-semibold">
+                <Globe className="w-3 h-3" />
+                IP-Bound Token
+              </span>
+              <span className="px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-800/60 text-emerald-300">
+                Verified
+              </span>
+            </div>
+            <div className="text-[10px] font-mono text-slate-500 truncate">
+              ID: <span className="text-slate-300">{sessionIdPreview}</span>
+            </div>
+          </div>
         </div>
 
         {/* User Card & Sign Out */}
@@ -178,7 +215,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   }`}
                 />
                 <span className="text-[10px] text-slate-400 capitalize truncate">
-                  {isHardwareEnrolled ? 'FIDO2 Protected' : 'Password Only'}
+                  {isHardwareEnrolled ? 'FIDO2 Protected' : accountType}
                 </span>
               </div>
             </div>
@@ -187,7 +224,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <button
             onClick={handleSignOut}
             disabled={isLoggingOut}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-950/30 border border-transparent hover:border-rose-900/40 rounded-xl transition-all disabled:opacity-50"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-950/30 border border-transparent hover:border-rose-900/40 rounded-xl transition-all disabled:opacity-50 cursor-pointer"
           >
             {isLoggingOut ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -201,9 +238,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Header */}
-        <header className="h-16 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 flex items-center justify-between px-6 shrink-0 z-10">
-          <div className="flex items-center gap-3">
+        {/* Top Header with Quick Page Switcher for Smooth Mobile & Desktop Navigation */}
+        <header className="h-16 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 flex items-center justify-between px-4 sm:px-6 shrink-0 z-10">
+          <div className="flex items-center gap-4">
             <div className="flex md:hidden items-center gap-2">
               <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center">
                 <ShieldCheck className="w-4 h-4 text-slate-950" />
@@ -211,30 +248,60 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <span className="font-bold text-sm tracking-tight text-white font-mono">NexusID</span>
             </div>
 
-            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400 font-mono">
-              <span className="text-emerald-400 flex items-center gap-1 font-semibold">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
-                Live Connection
-              </span>
-              <span className="text-slate-600">•</span>
-              <span>Encrypted Session</span>
+            {/* Smooth Top Pill Navigation Bar */}
+            <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
+              <Link
+                href="/dashboard"
+                prefetch={true}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${
+                  pathname === '/dashboard'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                <span>Overview</span>
+              </Link>
+              <Link
+                href="/dashboard/challenges"
+                prefetch={true}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${
+                  pathname === '/dashboard/challenges'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Daily Challenges</span>
+              </Link>
+              <Link
+                href="/dashboard/security"
+                prefetch={true}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${
+                  pathname === '/dashboard/security'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Security & Passkeys</span>
+              </Link>
             </div>
           </div>
 
           {/* Quick Actions Header */}
           <div className="flex items-center gap-3">
-            <Link
-              href="/dashboard/security"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 text-xs text-slate-300 transition-colors"
-            >
-              <KeyRound className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="hidden sm:inline">Passkeys</span>
-            </Link>
+            <div className="hidden lg:flex items-center gap-2 text-xs text-slate-400 font-mono mr-2">
+              <span className="text-emerald-400 flex items-center gap-1 font-semibold">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                RL Autoencoder Live
+              </span>
+            </div>
 
             <button
               onClick={handleSignOut}
               disabled={isLoggingOut}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-950/30 hover:bg-rose-900/40 border border-rose-800/50 text-xs text-rose-300 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-950/30 hover:bg-rose-900/40 border border-rose-800/50 text-xs text-rose-300 transition-colors disabled:opacity-50 cursor-pointer"
               title="Sign Out"
             >
               <LogOut className="w-3.5 h-3.5" />

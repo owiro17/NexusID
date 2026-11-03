@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import crypto from 'crypto';
 import { createClient } from '@/lib/supabase/server';
 import type { AuditApiPayload, SecurityEventType } from '@/types/auth';
 
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body: AuditApiPayload = await request.json();
+    const body: AuditApiPayload & { sessionId?: string } = await request.json();
 
     if (!body.eventType || !VALID_EVENT_TYPES.includes(body.eventType)) {
       return NextResponse.json(
@@ -42,11 +43,21 @@ export async function POST(request: NextRequest) {
     const clientIp =
       request.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
       request.headers.get('x-real-ip') ||
-      'unknown';
+      '127.0.0.1';
     const userAgent = request.headers.get('user-agent') || 'unknown';
     const riskScore = body.recordedRiskScore !== undefined ? body.recordedRiskScore : 0;
 
-    // 1. Insert audit record
+    const dayBucket = new Date().toISOString().slice(0, 10);
+    const deterministicSessionId =
+      body.sessionId ||
+      (body.metadata?.session_id as string) ||
+      `sess_${crypto
+        .createHash('sha256')
+        .update(`${user.id}:${clientIp}:${dayBucket}`)
+        .digest('hex')
+        .slice(0, 12)}`;
+
+    // 1. Insert audit record with guaranteed non-empty session_id and bound IP metadata
     const { data: logEntry, error: logError } = await supabase
       .from('security_audit_logs')
       .insert({
@@ -55,7 +66,11 @@ export async function POST(request: NextRequest) {
         recorded_risk_score: riskScore,
         ip_address: clientIp,
         user_agent: userAgent,
-        metadata: body.metadata || {},
+        metadata: {
+          ...(body.metadata || {}),
+          session_id: deterministicSessionId,
+          bound_ip: clientIp,
+        },
       })
       .select('id, created_at')
       .single();
@@ -71,7 +86,6 @@ export async function POST(request: NextRequest) {
       body.eventType === 'PASSKEY_LOGIN_SUCCESS' ||
       body.eventType === 'PASSKEY_REGISTERED'
     ) {
-      // Support both user_id and id schemas
       await supabase
         .from('user_profiles')
         .update({
@@ -85,6 +99,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      sessionId: deterministicSessionId,
+      clientIp,
       logId: logEntry?.id,
       timestamp: logEntry?.created_at,
     });

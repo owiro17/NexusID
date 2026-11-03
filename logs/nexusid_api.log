@@ -1,0 +1,14 @@
+2026-11-03 15:05:48,242 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8765
+ * Running on http://192.168.188.5:8765
+2026-11-03 15:05:48,242 [INFO] [33mPress CTRL+C to quit[0m
+2026-11-03 15:06:26,549 [INFO] 127.0.0.1 - - [03/Nov/2026 15:06:26] "GET /v1/health HTTP/1.1" 200 -
+2026-11-03 15:06:26,560 [INFO] ENROLL  uid=77f78cc31062d718  n=50  threshold=3.454  lat=3.92ms
+2026-11-03 15:06:26,561 [INFO] 127.0.0.1 - - [03/Nov/2026 15:06:26] "[35m[1mPOST /v1/enroll HTTP/1.1[0m" 201 -
+2026-11-03 15:06:26,567 [INFO] VERIFY  uid=77f78cc31062d718  dist=3.051  thr=3.454  decision=accept  flags=0  lat=0.3ms
+2026-11-03 15:06:26,568 [INFO] 127.0.0.1 - - [03/Nov/2026 15:06:26] "POST /v1/verify HTTP/1.1" 200 -
+2026-11-03 15:06:26,573 [INFO] VERIFY  uid=77f78cc31062d718  dist=1390.539  thr=3.454  decision=reject  flags=1  lat=0.3ms
+2026-11-03 15:06:26,573 [INFO] 127.0.0.1 - - [03/Nov/2026 15:06:26] "POST /v1/verify HTTP/1.1" 200 -
+2026-11-03 15:06:26,579 [INFO] 127.0.0.1 - - [03/Nov/2026 15:06:26] "GET /v1/profile/test_operator_alice HTTP/1.1" 200 -
+2026-11-03 15:06:26,583 [INFO] 127.0.0.1 - - [03/Nov/2026 15:06:26] "GET /v1/metrics HTTP/1.1" 200 -
