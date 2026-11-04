@@ -13,6 +13,8 @@ import {
   getSerializedProfileForSupabase,
 } from '@/lib/ml/operatorProfileEngine';
 
+export const runtime = 'nodejs';
+
 function extractClientIp(request: Request): string {
   const forwarded = request.headers.get('x-forwarded-for');
   if (forwarded) {
@@ -94,7 +96,8 @@ export async function POST(request: Request) {
     }
 
     // 3. Run Layer 1: Modality-Gated ONNX Runtime Bot vs. Human Inference
-    const inferenceResult = await evaluateTelemetry(keys, mouse);
+    const requestOrigin = new URL(request.url).origin;
+    const inferenceResult = await evaluateTelemetry(keys, mouse, requestOrigin);
 
     const keystrokeActive = inferenceResult.active_modalities.keystroke_active;
     const mouseActive = inferenceResult.active_modalities.mouse_active;

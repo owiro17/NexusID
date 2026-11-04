@@ -4,7 +4,10 @@ import os from 'os';
 
 const EDGE_MODEL_BASE_URL = process.env.NEXT_PUBLIC_MODEL_EDGE_URL || '';
 
-async function resolveOrFetchModelPath(filename: string): Promise<{ path: string; source: 'local' | 'edge-cdn' }> {
+async function resolveOrFetchModelBuffer(
+  filename: string,
+  requestOrigin?: string
+): Promise<{ buffer: Uint8Array; source: 'local' | 'edge-cdn' }> {
   const cwd = process.cwd();
   const candidates = [
     path.join(cwd, 'public', 'models', filename),
@@ -13,31 +16,65 @@ async function resolveOrFetchModelPath(filename: string): Promise<{ path: string
     path.join(__dirname, '..', 'public', 'models', filename),
   ];
 
-  if (EDGE_MODEL_BASE_URL) {
+  // 1. Check local / bundled serverless filesystem first
+  for (const candidate of candidates) {
     try {
-      const cacheDir = path.join(os.tmpdir(), 'nexusid-edge-models');
-      if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-      const cachedPath = path.join(cacheDir, filename);
-      if (fs.existsSync(cachedPath)) {
-        return { path: cachedPath, source: 'edge-cdn' };
-      }
-      const res = await fetch(`${EDGE_MODEL_BASE_URL.replace(/\/$/, '')}/${filename}`);
-      if (res.ok) {
-        const buf = Buffer.from(await res.arrayBuffer());
-        fs.writeFileSync(cachedPath, buf);
-        return { path: cachedPath, source: 'edge-cdn' };
+      if (fs.existsSync(candidate)) {
+        const buf = fs.readFileSync(candidate);
+        return { buffer: new Uint8Array(buf), source: 'local' };
       }
     } catch {
-      // Fallback to local disk
+      // Continue to next candidate
     }
   }
 
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      return { path: candidate, source: 'local' };
+  // 2. Check /tmp cache in Vercel Serverless / Edge environment
+  const cacheDir = path.join(os.tmpdir(), 'nexusid-edge-models');
+  const cachedPath = path.join(cacheDir, filename);
+  try {
+    if (fs.existsSync(cachedPath)) {
+      const buf = fs.readFileSync(cachedPath);
+      return { buffer: new Uint8Array(buf), source: 'edge-cdn' };
+    }
+  } catch {
+    // Ignore tmp cache read error
+  }
+
+  // 3. Fetch over HTTPS from Edge CDN, Vercel Production/Preview URL, or Request Origin
+  const baseUrls: string[] = [];
+  if (EDGE_MODEL_BASE_URL) {
+    baseUrls.push(EDGE_MODEL_BASE_URL.replace(/\/$/, ''));
+  }
+  if (requestOrigin) {
+    baseUrls.push(`${requestOrigin.replace(/\/$/, '')}/models`);
+  }
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    baseUrls.push(`https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}/models`);
+  }
+  if (process.env.VERCEL_URL) {
+    baseUrls.push(`https://${process.env.VERCEL_URL}/models`);
+  }
+
+  for (const base of baseUrls) {
+    try {
+      const res = await fetch(`${base}/${filename}`);
+      if (res.ok) {
+        const arrayBuf = await res.arrayBuffer();
+        const uint8 = new Uint8Array(arrayBuf);
+        try {
+          if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+          fs.writeFileSync(cachedPath, Buffer.from(arrayBuf));
+        } catch {
+          // Non-critical if /tmp write fails
+        }
+        return { buffer: uint8, source: 'edge-cdn' };
+      }
+    } catch {
+      // Try next URL
     }
   }
-  return { path: candidates[0], source: 'local' };
+
+  throw new Error(`Could not resolve ONNX model binary for ${filename}`);
 }
 
 export interface KeyEventData {
@@ -69,7 +106,6 @@ export interface ExtractedKeystrokeFeatures {
   std_dd: number;
   mean_ud: number;
   std_ud: number;
-  // High-discriminative human-to-human motor features (excludes thinking pauses > 650ms)
   hold_to_dd_ratio?: number;
   rollover_rate?: number;
   clean_digraph_count?: number;
@@ -104,7 +140,7 @@ let keySession: any = null;
 let modelSourceType: 'local' | 'edge-cdn' | 'fallback' = 'local';
 let initPromise: Promise<boolean> | null = null;
 
-async function getOrInitSessions(): Promise<boolean> {
+async function getOrInitSessions(requestOrigin?: string): Promise<boolean> {
   if (mouseSession && keySession) return true;
   if (initPromise) return initPromise;
 
@@ -115,15 +151,16 @@ async function getOrInitSessions(): Promise<boolean> {
       }
 
       const [mouseResolved, keyResolved] = await Promise.all([
-        resolveOrFetchModelPath('mouse.onnx'),
-        resolveOrFetchModelPath('keystroke.onnx'),
+        resolveOrFetchModelBuffer('mouse.onnx', requestOrigin),
+        resolveOrFetchModelBuffer('keystroke.onnx', requestOrigin),
       ]);
 
       modelSourceType = keyResolved.source;
 
+      // Pass Uint8Array buffer directly to InferenceSession.create (works in Vercel Serverless & Local)
       const [mSess, kSess] = await Promise.all([
-        ortModule.InferenceSession.create(mouseResolved.path, { executionProviders: ['cpu'] }),
-        ortModule.InferenceSession.create(keyResolved.path, { executionProviders: ['cpu'] }),
+        ortModule.InferenceSession.create(mouseResolved.buffer, { executionProviders: ['cpu'] }),
+        ortModule.InferenceSession.create(keyResolved.buffer, { executionProviders: ['cpu'] }),
       ]);
 
       mouseSession = mSess;
@@ -204,8 +241,7 @@ export function extractMouseFeatures(events: MouseEventData[]): ExtractedMouseFe
   };
 }
 
-// 2. Keystroke Dynamics Feature Extraction (Filters out cognitive thinking pauses > 800ms!)
-// Prevents thinking pauses from inflating user variance (sigma) so human-to-human swaps are caught sharply.
+// 2. Keystroke Dynamics Feature Extraction (Filters out cognitive thinking pauses > 850ms!)
 export function extractKeystrokeFeatures(events: KeyEventData[]): ExtractedKeystrokeFeatures {
   if (!events || events.length < 3) {
     return {
@@ -235,8 +271,6 @@ export function extractKeystrokeFeatures(events: KeyEventData[]): ExtractedKeyst
 
       if (lastKeydownTime !== null) {
         const dd = (ev.timestamp - lastKeydownTime) / 1000;
-        // CRITICAL: Cap contiguous digraph transition at 0.85s (850ms) so cognitive reading/thinking pauses
-        // do not pollute muscle-memory typing cadence or blow up variance!
         if (dd > 0.002 && dd <= 0.85) {
           downDownTimes.push(dd);
         }
@@ -262,12 +296,11 @@ export function extractKeystrokeFeatures(events: KeyEventData[]): ExtractedKeyst
     }
   }
 
-  // Trim extreme single-key outliers using Winsorized mean/std when >= 4 samples exist
   const calcRobustMeanStd = (arr: number[], defaultMean: number, defaultStd: number) => {
     if (arr.length === 0) return { mean: defaultMean, std: defaultStd };
     let filtered = [...arr].sort((a, b) => a - b);
     if (filtered.length >= 6) {
-      filtered = filtered.slice(1, filtered.length - 1); // drop min and max outlier
+      filtered = filtered.slice(1, filtered.length - 1);
     }
     const mean = filtered.reduce((a, b) => a + b, 0) / filtered.length;
     const variance =
@@ -303,14 +336,14 @@ export function extractKeystrokeFeatures(events: KeyEventData[]): ExtractedKeyst
 // 3. Modality-Gated ONNX Model Inference Engine
 export async function evaluateTelemetry(
   keys: KeyEventData[],
-  mouse: MouseEventData[]
+  mouse: MouseEventData[],
+  requestOrigin?: string
 ): Promise<ModelInferenceResult> {
   const startTime = Date.now();
 
   const keyFeatures = extractKeystrokeFeatures(keys);
   const mouseFeatures = extractMouseFeatures(mouse);
 
-  // Require at least 3 clean keystroke digraphs (6 key events) to evaluate typing identity
   const keystrokeActive =
     Array.isArray(keys) && keys.length >= 6 && (keyFeatures.clean_digraph_count ?? 0) >= 3;
   const mouseActive = Array.isArray(mouse) && mouse.length >= 4;
@@ -325,7 +358,7 @@ export async function evaluateTelemetry(
     keystrokeActive &&
     (keyFeatures.mean_hold < 0.012 || (keyFeatures.mean_dd < 0.025 && keyFeatures.std_hold < 0.005));
 
-  const isReady = await getOrInitSessions();
+  const isReady = await getOrInitSessions(requestOrigin);
 
   if (isReady && ortModule && mouseSession && keySession) {
     try {
