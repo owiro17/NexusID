@@ -15,18 +15,18 @@ import {
 } from 'lucide-react';
 
 function detectDeviceFriendlyName(): string {
-  if (typeof window === 'undefined') return 'My Security Key';
+  if (typeof window === 'undefined') return 'My Device Passkey';
 
   const userAgent = navigator.userAgent;
-  let os = 'Hardware Key';
+  let os = 'Security Key';
   let browser = 'Browser';
 
   if (userAgent.indexOf('Win') !== -1) os = 'Windows Hello';
-  else if (userAgent.indexOf('Mac') !== -1) os = 'MacBook / Touch ID';
+  else if (userAgent.indexOf('Mac') !== -1) os = 'MacBook Touch ID';
   else if (userAgent.indexOf('iPhone') !== -1) os = 'iPhone Face ID';
   else if (userAgent.indexOf('iPad') !== -1) os = 'iPad Touch ID';
   else if (userAgent.indexOf('Android') !== -1) os = 'Android Biometrics';
-  else if (userAgent.indexOf('Linux') !== -1) os = 'Linux Authenticator';
+  else if (userAgent.indexOf('Linux') !== -1) os = 'Linux Passkey';
 
   if (userAgent.indexOf('Chrome') !== -1 && userAgent.indexOf('Edg') === -1) browser = 'Chrome';
   else if (userAgent.indexOf('Safari') !== -1 && userAgent.indexOf('Chrome') === -1) browser = 'Safari';
@@ -85,15 +85,15 @@ export default function EnrollPasskeyPage() {
       setTimeout(() => {
         router.push('/dashboard');
         router.refresh();
-      }, 1500);
+      }, 1200);
     } catch (err: any) {
       console.error('Passkey registration error:', err);
       if (err.name === 'NotAllowedError') {
-        setError('Biometric registration was cancelled by user.');
+        setError('Passkey setup was cancelled.');
       } else if (err.name === 'InvalidStateError') {
-        setError('This device or security key is already registered for this account.');
+        setError('This device is already registered as a passkey for your account.');
       } else {
-        setError(err.message || 'Failed to enroll passkey on this device.');
+        setError(err.message || 'Could not register passkey on this device.');
       }
     } finally {
       setIsLoading(false);
@@ -105,66 +105,66 @@ export default function EnrollPasskeyPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 relative">
-      <div className="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-2xl p-6 sm:p-8 backdrop-blur-xl shadow-2xl">
+    <div className="min-h-screen bg-[#EEF2F6] text-slate-950 flex items-center justify-center p-4">
+      <div className="w-full max-w-md nexus-card-neumorphic rounded-3xl p-6 sm:p-8">
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 mb-3 shadow-[0_0_20px_rgba(16,185,129,0.2)]">
-            <Fingerprint className="w-8 h-8" />
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-blue-700 mb-3 shadow-xs">
+            <Fingerprint className="w-6 h-6" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">
-            Register Your Device
+          <h1 className="text-2xl font-extrabold tracking-tight text-slate-950">
+            Add a device passkey
           </h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Bind a cryptographic passkey to enable instant, passwordless logins on this device.
+          <p className="text-xs text-slate-800 font-medium mt-1.5 leading-relaxed">
+            Sign in and confirm transfers with a single biometric touch on this device.
           </p>
         </div>
 
         {error && (
-          <div className="mb-6 p-3.5 rounded-lg bg-red-950/40 border border-red-800/60 text-red-300 text-sm flex items-start gap-2.5">
-            <AlertCircle className="w-5 h-5 shrink-0 text-red-400 mt-0.5" />
+          <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-300 text-red-950 text-xs font-semibold flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-700 mt-0.5" />
             <span>{error}</span>
           </div>
         )}
 
         {success && (
-          <div className="mb-6 p-3.5 rounded-lg bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 text-sm flex items-center gap-2.5">
-            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-            <span>Passkey bound successfully! Redirecting to dashboard...</span>
+          <div className="mb-6 p-4 rounded-xl bg-teal-50 border border-teal-300 text-teal-950 text-xs font-semibold flex items-center gap-2.5">
+            <CheckCircle2 className="w-4 h-4 text-teal-700 shrink-0" />
+            <span>Passkey added! Returning to your account...</span>
           </div>
         )}
 
         <form onSubmit={handleRegisterPasskey} className="space-y-4">
           <div>
-            <label htmlFor="friendlyName" className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
-              <Laptop className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Passkey Device Label</span>
+            <label htmlFor="friendlyName" className="block text-xs font-bold text-slate-900 mb-1.5 flex items-center gap-1.5">
+              <Laptop className="w-3.5 h-3.5 text-blue-700" />
+              <span>Device name</span>
             </label>
             <input
               id="friendlyName"
               type="text"
               value={friendlyName}
               onChange={(e) => setFriendlyName(e.target.value)}
-              placeholder="e.g. MacBook Pro M3 - Chrome"
+              placeholder="e.g. Office Laptop"
               required
               disabled={isLoading || success}
-              className="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all disabled:opacity-50"
+              className="w-full px-3.5 py-2.5 rounded-xl nexus-input-neumorphic text-xs text-slate-950 placeholder-slate-500 font-medium disabled:opacity-50"
             />
           </div>
 
           <button
             type="submit"
             disabled={isLoading || success}
-            className="w-full py-3.5 px-4 rounded-xl font-semibold text-slate-950 bg-gradient-to-r from-emerald-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 active:scale-[0.99] disabled:opacity-50 transition-all duration-200 shadow-[0_0_25px_rgba(16,185,129,0.3)] flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full py-3.5 px-4 rounded-xl font-bold text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm flex items-center justify-center gap-2 cursor-pointer"
           >
             {isLoading ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                <span>Creating WebAuthn Key...</span>
+                <span>Saving passkey...</span>
               </>
             ) : (
               <>
                 <Fingerprint className="w-5 h-5" />
-                <span>Create & Bind Passkey</span>
+                <span>Save passkey</span>
               </>
             )}
           </button>
@@ -175,16 +175,16 @@ export default function EnrollPasskeyPage() {
             type="button"
             onClick={handleSkip}
             disabled={isLoading || success}
-            className="text-xs text-slate-500 hover:text-slate-400 transition-colors inline-flex items-center gap-1 cursor-pointer"
+            className="text-xs font-semibold text-slate-700 hover:text-slate-950 transition-colors inline-flex items-center gap-1 cursor-pointer"
           >
-            <span>Skip for now (Not Recommended)</span>
+            <span>Return to dashboard</span>
             <ArrowRight className="w-3 h-3" />
           </button>
         </div>
 
-        <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-center gap-2 text-xs text-slate-500">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-          <span>FIDO2 Resident Credential Stored in Secure Enclave</span>
+        <div className="mt-6 pt-4 border-t border-slate-200 flex items-center justify-center gap-2 text-xs text-slate-700 font-semibold">
+          <ShieldCheck className="w-4 h-4 text-teal-700" />
+          <span>Protected by NexusID</span>
         </div>
       </div>
     </div>

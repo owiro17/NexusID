@@ -1,72 +1,65 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useTelemetry } from '@/hooks/useTelemetry';
 import { StepUpModal } from '@/components/auth/StepUpModal';
-import type { FinancialLedger, SecurityAuditLog, UserProfile } from '@/types/auth';
+import type { FinancialLedger, UserProfile } from '@/types/auth';
 import {
   ShieldCheck,
   ShieldAlert,
   ArrowUpRight,
   ArrowDownLeft,
-  DollarSign,
-  Activity,
-  KeyRound,
-  RefreshCw,
   Send,
   CheckCircle2,
   AlertTriangle,
   Fingerprint,
-  Lock,
-  Cpu,
-  Clock,
-  History,
-  PlusCircle,
-  Building2,
-  ChevronRight,
-  TrendingDown,
-  Layers,
   Sparkles,
-  MousePointer,
-  Keyboard,
-  Binary,
+  ChevronRight,
+  RefreshCw,
 } from 'lucide-react';
 
-const INITIAL_CREDIT_BALANCE = 25000.0;
+const INITIAL_CREDIT_BALANCE = 10000.0;
+const HIGH_VALUE_STEP_UP_KES = 100000.0;
+
+function formatKes(amount: number): string {
+  return `KSh ${amount.toLocaleString('en-KE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function cleanAccountLabel(raw: string): string {
+  if (!raw) return 'Account Transfer';
+  return raw
+    .replace(/🏆\s*/g, '')
+    .replace(/\+\$/g, '+KSh ')
+    .replace(/\$/g, 'KSh ');
+}
 
 export default function DashboardPage() {
   const router = useRouter();
   const supabase = createClient();
+  const recipientInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Background Telemetry with live ONNX Runtime Model Inference + Continual Deep Autoencoder & RL
   const {
     currentRiskScore: liveRiskScore,
-    totalKeystrokes,
-    totalMouseEvents,
-    modelInference,
     operatorVerification,
-    activeSessionId,
-    isEvaluating,
-    simulateBotTelemetry,
-    simulateHumanImpostorSwap,
-    simulateIpHijackDrift,
-    instantEnrollProfile,
     rewardContinualModel,
-    resetOperatorProfile,
   } = useTelemetry(5000, true);
 
-  // Allow developer/tester to simulate anomaly or use live telemetry score
   const [simulatedRisk, setSimulatedRisk] = useState<number | null>(null);
   const activeRiskScore = simulatedRisk !== null ? simulatedRisk : liveRiskScore;
+  const trustScore = Math.max(0, Math.min(100, Math.round(100 - activeRiskScore)));
 
-  // Supabase Data State
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string>('');
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [transactions, setTransactions] = useState<FinancialLedger[]>([]);
-  const [auditLogs, setAuditLogs] = useState<SecurityAuditLog[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
+  const [showAllActivity, setShowAllActivity] = useState(false);
 
   // Transfer Form State
   const [targetAccount, setTargetAccount] = useState('');
@@ -76,7 +69,6 @@ export default function DashboardPage() {
   const [statusMsg, setStatusMsg] = useState<{
     type: 'success' | 'error' | 'warning' | 'info';
     text: string;
-    txId?: string;
   } | null>(null);
 
   // Step-Up Verification Modal State
@@ -87,7 +79,6 @@ export default function DashboardPage() {
     memo?: string;
   } | null>(null);
 
-  // Load live data from Supabase
   const loadDashboardData = useCallback(async () => {
     try {
       const {
@@ -101,8 +92,8 @@ export default function DashboardPage() {
       }
 
       setCurrentUserId(user.id);
+      setUserEmail(user.email || '');
 
-      // 1. Fetch User Profile
       let { data: profile } = await supabase
         .from('user_profiles')
         .select('*')
@@ -110,14 +101,13 @@ export default function DashboardPage() {
         .maybeSingle();
 
       if (!profile && user.email) {
-        // Self-heal profile if missing
         const { data: newProfile } = await supabase
           .from('user_profiles')
           .upsert(
             {
               user_id: user.id,
               email: user.email,
-              account_type: 'Enterprise Tier',
+              account_type: 'Business Account',
               behavioral_risk_score: 0,
               hardware_enrolled: false,
               updated_at: new Date().toISOString(),
@@ -130,7 +120,6 @@ export default function DashboardPage() {
       }
       if (profile) setUserProfile(profile as UserProfile);
 
-      // 2. Fetch Financial Ledgers (real records from public.financial_ledgers)
       const { data: ledgerData, error: ledgerErr } = await supabase
         .from('financial_ledgers')
         .select('*')
@@ -140,20 +129,8 @@ export default function DashboardPage() {
       if (!ledgerErr && Array.isArray(ledgerData)) {
         setTransactions(ledgerData as FinancialLedger[]);
       }
-
-      // 3. Fetch Security Audit Logs (real records from public.security_audit_logs)
-      const { data: logData, error: logErr } = await supabase
-        .from('security_audit_logs')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('timestamp', { ascending: false })
-        .limit(6);
-
-      if (!logErr && Array.isArray(logData)) {
-        setAuditLogs(logData as unknown as SecurityAuditLog[]);
-      }
     } catch (err) {
-      console.error('Error loading dashboard data from Supabase:', err);
+      console.error('Error loading account data:', err);
     } finally {
       setIsLoadingData(false);
     }
@@ -163,7 +140,7 @@ export default function DashboardPage() {
     loadDashboardData();
   }, [loadDashboardData]);
 
-  // Financial Calculations based on live ledger data
+  // Financial Calculations based on live records
   const totalOutflow = transactions
     .filter((tx) => tx.status !== 'Failed')
     .reduce((sum, tx) => sum + Math.max(0, Number(tx.transaction_amount) || 0), 0);
@@ -174,102 +151,20 @@ export default function DashboardPage() {
 
   const availableBalance = Math.max(0, INITIAL_CREDIT_BALANCE - totalOutflow + totalInflow);
 
-  // Quick Seed Initial Transaction if ledger is empty
-  const handleSeedInitialLedger = async () => {
-    if (!currentUserId) return;
-    setIsTransferring(true);
-    setStatusMsg(null);
-
-    try {
-      const { error } = await supabase.from('financial_ledgers').insert([
-        {
-          user_id: currentUserId,
-          target_account: 'Nexus Treasury Liquidity Grant (ACC-001)',
-          transaction_amount: 500.0,
-          status: 'completed',
-        },
-      ]);
-
-      if (error) throw error;
-
-      await loadDashboardData();
-      setStatusMsg({
-        type: 'success',
-        text: 'Initial demonstration ledger record created in Supabase.',
-      });
-    } catch (err: any) {
-      setStatusMsg({
-        type: 'error',
-        text: err.message || 'Failed to seed ledger record.',
-      });
-    } finally {
-      setIsTransferring(false);
-    }
-  };
-
-  // Transfer Execution (Zero-Trust Logic)
-  const initiateTransfer = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setStatusMsg(null);
-
-    const amount = parseFloat(transferAmount);
-    if (!targetAccount.trim()) {
-      setStatusMsg({ type: 'error', text: 'Please specify a destination account or IBAN.' });
-      return;
-    }
-    if (isNaN(amount) || amount <= 0) {
-      setStatusMsg({ type: 'error', text: 'Please enter a valid positive transfer amount.' });
-      return;
-    }
-    if (amount > availableBalance) {
-      setStatusMsg({
-        type: 'error',
-        text: `Insufficient funds. Available balance is $${availableBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}.`,
-      });
-      return;
-    }
-
-    // Step-Up Trigger Condition:
-    // 1. Behavioral Risk Score exceeds 70% threshold
-    // 2. High-value transaction policy (amount >= $5,000)
-    const requiresStepUp = activeRiskScore > 70 || amount >= 5000;
-
-    if (requiresStepUp) {
-      setPendingTransferPayload({
-        targetAccount: targetAccount.trim(),
-        amount,
-        memo: transferMemo.trim(),
-      });
-      setIsStepUpOpen(true);
-      setStatusMsg({
-        type: 'warning',
-        text:
-          activeRiskScore > 70
-            ? '⚠️ High Behavioral Risk Detected (>70%). Step-Up Biometric Verification is required.'
-            : '🛡️ Elevated Transfer Policy ($5,000+). Hardware Passkey Step-Up required.',
-      });
-      return;
-    }
-
-    // Nominal Risk: Execute immediately
-    await executeDatabaseTransfer(targetAccount.trim(), amount, transferMemo.trim());
-  };
-
   const executeDatabaseTransfer = async (
     target: string,
     amount: number,
     memo?: string
   ) => {
     if (!currentUserId) {
-      setStatusMsg({ type: 'error', text: 'Session expired. Please log in again.' });
+      setStatusMsg({ type: 'error', text: 'Your session has expired. Please sign in again.' });
       return;
     }
 
     setIsTransferring(true);
 
     try {
-      // Direct PostgreSQL insert into public.financial_ledgers
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('financial_ledgers')
         .insert([
           {
@@ -283,30 +178,23 @@ export default function DashboardPage() {
         .single();
 
       if (error) {
-        throw new Error(
-          error.message.includes('row-level security') || error.message.includes('policy')
-            ? `PostgreSQL RLS Enforcement Blocked Transaction: ${error.message}`
-            : error.message
-        );
+        throw new Error('Transfer could not be completed right now. Please try again.');
       }
 
-      // Re-fetch live data to update balance and transactions table
       await loadDashboardData();
 
-      // Clear input fields
       setTargetAccount('');
       setTransferAmount('');
       setTransferMemo('');
 
       setStatusMsg({
         type: 'success',
-        text: `Transfer authorized: $${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} routed to ${target}.`,
-        txId: data?.transaction_id,
+        text: `${formatKes(amount)} sent to ${target}.`,
       });
     } catch (err: any) {
       setStatusMsg({
         type: 'error',
-        text: err.message || 'Transaction could not be completed.',
+        text: err.message || 'Transfer could not be completed.',
       });
     } finally {
       setIsTransferring(false);
@@ -314,560 +202,314 @@ export default function DashboardPage() {
     }
   };
 
-  // Step-Up Modal verified callback
-  const handleStepUpVerified = async (method: 'passkey' | 'otp') => {
+  const initiateTransfer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStatusMsg(null);
+
+    const amount = parseFloat(transferAmount);
+    if (!targetAccount.trim()) {
+      setStatusMsg({ type: 'error', text: 'Please enter a recipient account number.' });
+      return;
+    }
+    if (isNaN(amount) || amount <= 0) {
+      setStatusMsg({ type: 'error', text: 'Please enter a valid amount.' });
+      return;
+    }
+    if (amount > availableBalance) {
+      setStatusMsg({
+        type: 'error',
+        text: `Insufficient balance. You have ${formatKes(availableBalance)} available.`,
+      });
+      return;
+    }
+
+    // Step-up only when behavioral risk > 70% (Trust Score < 30) or amount >= KSh 100,000
+    const requiresStepUp = activeRiskScore > 70 || amount >= HIGH_VALUE_STEP_UP_KES;
+
+    if (requiresStepUp) {
+      setPendingTransferPayload({
+        targetAccount: targetAccount.trim(),
+        amount,
+        memo: transferMemo.trim(),
+      });
+      setIsStepUpOpen(true);
+      setStatusMsg({
+        type: 'warning',
+        text: 'Please confirm it is you with your passkey to complete this transfer.',
+      });
+      return;
+    }
+
+    await executeDatabaseTransfer(targetAccount.trim(), amount, transferMemo.trim());
+  };
+
+  const handleStepUpVerified = async () => {
     setIsStepUpOpen(false);
-    setSimulatedRisk(0); // Reset risk score on cryptographic biometric success
-    await rewardContinualModel(60); // Online RL reward: adapts Autoencoder & relaxes threshold to lower FRR
+    setSimulatedRisk(0);
+    await rewardContinualModel(60);
 
     if (pendingTransferPayload) {
-      setStatusMsg({
-        type: 'info',
-        text: `Biometric identity confirmed via ${method === 'passkey' ? 'FIDO2 Passkey' : 'One-Time Passcode'}. Executing transfer...`,
-      });
       await executeDatabaseTransfer(
         pendingTransferPayload.targetAccount,
         pendingTransferPayload.amount,
         pendingTransferPayload.memo
       );
+    } else {
+      setStatusMsg({
+        type: 'success',
+        text: 'Identity confirmed. Your account protection is back to normal.',
+      });
     }
   };
 
-  const isRiskHigh = activeRiskScore > 70;
-  const isRiskMedium = activeRiskScore > 35 && activeRiskScore <= 70;
+  const isConfirmNeeded = activeRiskScore > 70;
+  const isLearningStyle =
+    !isConfirmNeeded && operatorVerification?.status !== 'enrolled';
+  const learningProgressPct =
+    operatorVerification?.enrollmentProgress.percentComplete ?? 40;
+
+  const firstName = userEmail
+    ? userEmail.split('@')[0].replace(/[._-]/g, ' ')
+    : 'there';
+
+  const visibleTransactions = showAllActivity
+    ? transactions
+    : transactions.slice(0, 5);
 
   return (
-    <div className="space-y-8 pb-12">
-      {/* Top Banner / System Notice */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-6">
-        <div>
-          <div className="flex items-center gap-2 text-cyan-400 text-xs font-mono mb-1">
-            <Cpu className="w-3.5 h-3.5" />
-            <span>CONTINUOUS ZERO-TRUST CORE • LIVE ONNX ML INFERENCE</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white font-sans">
-            Banking & Liquidity Portal
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Real-time biometric trust scoring via ONNX Random Forest, hardware-bound passkeys, and live PostgreSQL ledger.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={loadDashboardData}
-            disabled={isLoadingData}
-            className="px-3 py-2 rounded-xl text-xs font-medium bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
-            title="Refresh database records"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoadingData ? 'animate-spin text-cyan-400' : ''}`} />
-            <span>Sync Supabase</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Top Level Metric Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {/* Available Liquidity Card */}
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900/95 to-slate-950 border border-slate-800 p-6 shadow-xl">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/5 rounded-full blur-2xl pointer-events-none" />
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-            <span className="font-mono uppercase tracking-wider">Settled Liquidity</span>
-            <span className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-              <DollarSign className="w-4 h-4" />
-            </span>
-          </div>
-          <div className="text-3xl font-extrabold font-mono text-white tracking-tight">
-            ${availableBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-          <div className="mt-4 flex items-center justify-between text-xs text-slate-400 border-t border-slate-800/60 pt-3">
-            <span className="flex items-center gap-1 text-slate-400">
-              <Building2 className="w-3.5 h-3.5 text-slate-500" />
-              Nexus Treasury Vault
-            </span>
-            <span className="text-emerald-400 font-mono font-medium">FDIC Insured</span>
-          </div>
-        </div>
-
-        {/* Total Outflow Volume */}
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900/95 to-slate-950 border border-slate-800 p-6 shadow-xl">
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-            <span className="font-mono uppercase tracking-wider">Transferred Out</span>
-            <span className="p-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
-              <ArrowUpRight className="w-4 h-4" />
-            </span>
-          </div>
-          <div className="text-3xl font-extrabold font-mono text-white tracking-tight">
-            ${totalOutflow.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-          <div className="mt-4 flex items-center justify-between text-xs text-slate-400 border-t border-slate-800/60 pt-3">
-            <span>{transactions.length} Ledger Records</span>
-            <span className="text-cyan-400 font-mono">100% On-Chain DB</span>
-          </div>
-        </div>
-
-        {/* Continuous Behavioral Trust Health */}
-        <div
-          className={`relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900/95 to-slate-950 border p-6 shadow-xl transition-colors ${
-            isRiskHigh
-              ? 'border-red-500/40 ring-1 ring-red-500/20'
-              : isRiskMedium
-              ? 'border-amber-500/40 ring-1 ring-amber-500/20'
-              : 'border-slate-800'
-          }`}
-        >
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-            <span className="font-mono uppercase tracking-wider">ML Continuous Risk</span>
-            <span
-              className={`p-1.5 rounded-lg border ${
-                isRiskHigh
-                  ? 'bg-red-500/10 border-red-500/20 text-red-400'
-                  : isRiskMedium
-                  ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                  : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-              }`}
-            >
-              <Activity className="w-4 h-4" />
-            </span>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <div
-              className={`text-3xl font-extrabold font-mono tracking-tight ${
-                isRiskHigh ? 'text-red-400' : isRiskMedium ? 'text-amber-400' : 'text-emerald-400'
-              }`}
-            >
-              {activeRiskScore}%
+    <div className="space-y-6">
+      {/* 1. Greeting + Large Balance Card with Primary Send Money CTA */}
+      <section className="nexus-card-neumorphic p-6 sm:p-8">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div>
+            <p className="text-sm text-slate-700 font-medium capitalize">
+              Welcome back, <span className="font-bold text-slate-950">{firstName}</span>
+            </p>
+            <div className="mt-2.5 flex items-baseline gap-3">
+              <span className="text-3xl sm:text-5xl font-extrabold tracking-tight text-slate-950 tabular-nums">
+                {formatKes(availableBalance)}
+              </span>
+              <span className="text-xs font-bold text-teal-950 bg-teal-100 border border-teal-300 px-3 py-1 rounded-full shadow-2xs">
+                Available balance
+              </span>
             </div>
-            <span className="text-xs text-slate-400">
-              {isRiskHigh ? 'Critical Imposter Risk' : isRiskMedium ? 'Elevated Anomaly' : 'Baseline Verified'}
-            </span>
+
+            <div className="mt-4 flex flex-wrap items-center gap-6 text-xs text-slate-700 font-medium tabular-nums">
+              <span className="flex items-center gap-1.5">
+                <ArrowDownLeft className="w-4 h-4 text-teal-700" />
+                <span>Rewards earned:</span>
+                <strong className="text-slate-950 font-bold">{formatKes(totalInflow)}</strong>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <ArrowUpRight className="w-4 h-4 text-blue-700" />
+                <span>Total sent:</span>
+                <strong className="text-slate-950 font-bold">{formatKes(totalOutflow)}</strong>
+              </span>
+            </div>
           </div>
-          <div className="mt-4 flex items-center justify-between text-xs border-t border-slate-800/60 pt-3">
-            <span className="text-slate-400">Hardware Resident Key</span>
-            <span
-              className={`font-mono text-xs flex items-center gap-1 ${
-                userProfile?.hardware_enrolled ? 'text-emerald-400' : 'text-amber-400'
-              }`}
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => recipientInputRef.current?.focus()}
+              className="nexus-btn-neumorphic px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold transition-all duration-150 flex items-center gap-2 cursor-pointer"
             >
-              <Fingerprint className="w-3.5 h-3.5" />
-              {userProfile?.hardware_enrolled ? 'Bound' : 'Not Enrolled'}
-            </span>
+              <Send className="w-4 h-4" />
+              <span>Send money</span>
+            </button>
+            <Link
+              href="/dashboard/challenges"
+              className="nexus-btn-neumorphic px-4 py-3 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 text-sm font-bold transition-all duration-150 flex items-center gap-2 cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4 text-amber-700" />
+              <span>Earn KSh rewards</span>
+            </Link>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Behavioral Telemetry & Live ONNX Inference Console */}
-      <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-6 shadow-xl space-y-5">
+      {/* 2. Calm Security Status Chip + 0-100 Trust Score */}
+      <section
+        className={`nexus-card-neumorphic p-5 transition-all duration-200 ${
+          isConfirmNeeded
+            ? 'bg-amber-50/90 border-amber-300 ring-2 ring-amber-400/20'
+            : isLearningStyle
+            ? 'bg-blue-50/70 border-blue-300'
+            : 'bg-white'
+        }`}
+      >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
-              <Binary className="w-5 h-5" />
+          <div className="flex items-start sm:items-center gap-3.5">
+            <div
+              className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 shadow-2xs ${
+                isConfirmNeeded
+                  ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                  : isLearningStyle
+                  ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                  : 'bg-teal-100 text-teal-900 border border-teal-300'
+              }`}
+            >
+              {isConfirmNeeded ? (
+                <ShieldAlert className="w-5 h-5" />
+              ) : isLearningStyle ? (
+                <Fingerprint className="w-5 h-5" />
+              ) : (
+                <ShieldCheck className="w-5 h-5" />
+              )}
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-semibold text-white">Edge ML Inference Engine</h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-cyan-950 border border-cyan-800/70 text-cyan-400 flex items-center gap-1">
-                  <span className={`w-1.5 h-1.5 rounded-full ${isEvaluating ? 'bg-amber-400 animate-ping' : 'bg-emerald-400'}`} />
-                  {modelInference?.engine || 'ONNX Runtime Active'}
-                </span>
-                {modelInference?.inference_time_ms !== undefined && (
-                  <span className="text-[11px] font-mono text-slate-400">
-                    ({modelInference.inference_time_ms}ms)
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Evaluates user typing rhythm and mouse kinematics in real-time through dual Random Forest classifiers.
-              </p>
-            </div>
-          </div>
 
-          {/* Interactive ML verification triggers */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-slate-500 font-mono hidden md:inline">Test Threat Vectors:</span>
-            <button
-              type="button"
-              onClick={async () => {
-                setSimulatedRisk(null);
-                await simulateBotTelemetry();
-              }}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-950/60 border border-red-800/80 text-red-300 hover:bg-red-900/60 transition-colors cursor-pointer flex items-center gap-1.5"
-              title="Inject inhuman 2ms robotic telemetry into Layer 1 ONNX models"
-            >
-              <Cpu className="w-3.5 h-3.5" />
-              <span>Simulate Bot Attack (ONNX)</span>
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                setSimulatedRisk(null);
-                if (operatorVerification?.status !== 'enrolled') {
-                  await instantEnrollProfile();
-                }
-                await simulateHumanImpostorSwap();
-              }}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-950/60 border border-amber-700/80 text-amber-300 hover:bg-amber-900/60 transition-colors cursor-pointer flex items-center gap-1.5"
-              title="Simulate a second human operator (Operator B) taking over the keyboard with different biological typing cadence"
-            >
-              <Fingerprint className="w-3.5 h-3.5" />
-              <span>Simulate Human Operator Swap</span>
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                setSimulatedRisk(null);
-                if (operatorVerification?.status !== 'enrolled') {
-                  await instantEnrollProfile();
-                }
-                await simulateIpHijackDrift();
-              }}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-950/60 border border-purple-700/80 text-purple-300 hover:bg-purple-900/60 transition-colors cursor-pointer flex items-center gap-1.5"
-              title="Simulate a session token replay from a different IP address"
-            >
-              <Lock className="w-3.5 h-3.5" />
-              <span>Simulate IP Token Hijack</span>
-            </button>
-            {(simulatedRisk !== null ||
-              liveRiskScore > 35 ||
-              (operatorVerification?.consecutiveAnomalies ?? 0) > 0 ||
-              operatorVerification?.sessionSecurity?.ipDriftDetected) && (
-              <button
-                type="button"
-                onClick={async () => {
-                  setSimulatedRisk(0);
-                  await rewardContinualModel(40);
-                }}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors cursor-pointer"
-              >
-                Reset & Reinforce (+RL)
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Layer 2: Invisible Passive Biometric Calibration & Per-Operator Identity Strip */}
-        <div className="rounded-xl bg-slate-950/90 border border-slate-800/90 p-4 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <div
-                className={`p-2 rounded-lg border ${
-                  operatorVerification?.status === 'enrolled'
-                    ? operatorVerification.decision === 'accept'
-                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                      : 'bg-red-500/10 border-red-500/30 text-red-400'
-                    : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400'
-                }`}
-              >
-                <Fingerprint className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold text-white">
-                    Layer 2: Invisible Per-Operator Biometric Lock (Human-to-Human Discrimination)
-                  </span>
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span
+                  className={`inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-bold ${
+                    isConfirmNeeded
+                      ? 'bg-amber-100 text-amber-950 border border-amber-400'
+                      : isLearningStyle
+                      ? 'bg-blue-100 text-blue-950 border border-blue-400'
+                      : 'bg-teal-100 text-teal-950 border border-teal-300'
+                  }`}
+                >
                   <span
-                    className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
-                      operatorVerification?.status === 'enrolled'
-                        ? operatorVerification.decision === 'accept'
-                          ? 'bg-emerald-950/70 border-emerald-700/70 text-emerald-300'
-                          : operatorVerification.decision === 'alert'
-                          ? 'bg-red-950/80 border-red-700 text-red-300 font-bold'
-                          : 'bg-amber-950/80 border-amber-700 text-amber-300'
-                        : 'bg-cyan-950/70 border-cyan-800 text-cyan-300'
+                    className={`w-2 h-2 rounded-full ${
+                      isConfirmNeeded
+                        ? 'bg-amber-600'
+                        : isLearningStyle
+                        ? 'bg-blue-600'
+                        : 'bg-teal-600'
+                    }`}
+                  />
+                  {isConfirmNeeded
+                    ? "Confirm it's you"
+                    : isLearningStyle
+                    ? 'Learning your style'
+                    : 'Protected'}
+                </span>
+
+                <span className="text-xs font-semibold text-slate-800 tabular-nums">
+                  Trust score:{' '}
+                  <strong
+                    className={`font-extrabold ${
+                      isConfirmNeeded
+                        ? 'text-amber-950'
+                        : isLearningStyle
+                        ? 'text-blue-900'
+                        : 'text-teal-900'
                     }`}
                   >
-                    {operatorVerification?.status === 'enrolled'
-                      ? operatorVerification.decision === 'accept'
-                        ? 'IDENTITY LOCKED • GENUINE OPERATOR'
-                        : operatorVerification.decision === 'alert'
-                        ? 'LOCKOUT TRIGGERED • OPERATOR SWAP DETECTED'
-                        : `ANOMALOUS CADENCE (${operatorVerification.consecutiveAnomalies}/3 WINDOWS)`
-                      : `SILENT CALIBRATION (${operatorVerification?.enrollmentProgress.collectedWindows ?? 0}/${operatorVerification?.enrollmentProgress.requiredWindows ?? 5} WINDOWS)`}
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  {operatorVerification?.status === 'enrolled'
-                    ? 'Continuously verifies your personal 12-D keystroke & mouse centroid invisibly in the background (EER 2.40%, FAR 0.33%, TTD 15s).'
-                    : 'Zero typing drills required — silently learning your natural typing rhythm as you enter account numbers, amounts, and memos below.'}
-                </p>
+                    {trustScore} / 100
+                  </strong>
+                </span>
               </div>
-            </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              {operatorVerification?.status !== 'enrolled' ? (
-                <button
-                  type="button"
-                  onClick={instantEnrollProfile}
-                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-mono font-semibold bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 transition-colors cursor-pointer"
-                >
-                  Instant Lock Baseline
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={resetOperatorProfile}
-                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-mono bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 transition-colors cursor-pointer"
-                >
-                  Recalibrate Profile
-                </button>
+              <p className="text-xs font-medium text-slate-700 leading-relaxed">
+                {isConfirmNeeded
+                  ? 'Activity on this session looks unfamiliar. Verify once with your passkey to continue smoothly.'
+                  : isLearningStyle
+                  ? 'Silently learning how you type and navigate so we can protect your account without interrupting you.'
+                  : 'Your typing rhythm and device match your personal profile.'}
+              </p>
+
+              {isLearningStyle && (
+                <div className="pt-1 max-w-xs">
+                  <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden shadow-inner">
+                    <div
+                      className="h-full bg-blue-600 rounded-full transition-all duration-300"
+                      style={{ width: `${Math.max(12, learningProgressPct)}%` }}
+                    />
+                  </div>
+                </div>
               )}
             </div>
           </div>
 
-          {/* Calibration Progress Bar or Mahalanobis Telemetry Metrics */}
-          {operatorVerification?.status !== 'enrolled' ? (
-            <div className="space-y-1">
-              <div className="flex justify-between text-[11px] font-mono text-slate-400">
-                <span>Invisible Background Profile Calibration</span>
-                <span className="text-cyan-400">
-                  {operatorVerification?.enrollmentProgress.percentComplete ?? 0}% Complete
-                </span>
-              </div>
-              <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 transition-all duration-500"
-                  style={{
-                    width: `${Math.max(8, operatorVerification?.enrollmentProgress.percentComplete ?? 8)}%`,
-                  }}
-                />
-              </div>
-            </div>
+          <div className="flex items-center gap-3 self-start sm:self-center shrink-0">
+            {isConfirmNeeded ? (
+              <button
+                type="button"
+                onClick={() => setIsStepUpOpen(true)}
+                className="nexus-btn-neumorphic px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-sm"
+              >
+                <Fingerprint className="w-4 h-4" />
+                <span>Verify with passkey</span>
+              </button>
+            ) : (
+              <Link
+                href="/dashboard/insights"
+                className="text-xs font-bold text-blue-700 hover:text-blue-800 flex items-center gap-1 transition-colors duration-150 cursor-pointer"
+              >
+                <span>View trust insights</span>
+                <ChevronRight className="w-4 h-4" />
+              </Link>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Status Alert Banner */}
+      {statusMsg && (
+        <div
+          className={`nexus-card-neumorphic p-4 text-xs font-semibold flex items-center gap-3 ${
+            statusMsg.type === 'success'
+              ? 'bg-teal-50/90 border-teal-300 text-teal-950'
+              : statusMsg.type === 'warning'
+              ? 'bg-amber-50/90 border-amber-300 text-amber-950'
+              : 'bg-red-50/90 border-red-300 text-red-950'
+          }`}
+        >
+          {statusMsg.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 text-teal-700 shrink-0" />
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-1 text-[11px] font-mono">
-              <div className="bg-slate-900/90 px-3 py-2 rounded-lg border border-slate-800/80">
-                <span className="text-[10px] text-slate-500 block">Hybrid Score (D_M + AE)</span>
-                <span
-                  className={`font-bold ${
-                    (operatorVerification.mahalanobisDistance ?? 0) > (operatorVerification.threshold ?? 3.15)
-                      ? 'text-red-400'
-                      : 'text-emerald-400'
-                  }`}
-                >
-                  {operatorVerification.mahalanobisDistance.toFixed(2)}{' '}
-                  <span className="text-slate-500 font-normal">
-                    / τ={operatorVerification.threshold.toFixed(2)}
-                  </span>
-                </span>
-              </div>
-              <div className="bg-slate-900/90 px-3 py-2 rounded-lg border border-slate-800/80">
-                <span className="text-[10px] text-slate-500 block">Deep AE Recon Error</span>
-                <span className="text-cyan-400 font-bold">
-                  {(operatorVerification.reconstructionError ?? 0.14).toFixed(3)}{' '}
-                  <span className="text-slate-500 font-normal">
-                    ({operatorVerification.continualLearning?.epochsTrained ?? 6} ep)
-                  </span>
-                </span>
-              </div>
-              <div className="bg-slate-900/90 px-3 py-2 rounded-lg border border-slate-800/80">
-                <span className="text-[10px] text-slate-500 block">RL FRR Multiplier</span>
-                <span className="text-emerald-400 font-bold">
-                  {(operatorVerification.continualLearning?.adaptiveMultiplier ?? 1.0).toFixed(2)}x{' '}
-                  <span className="text-slate-500 font-normal">
-                    (+{operatorVerification.continualLearning?.rlRewards ?? 5} R)
-                  </span>
-                </span>
-              </div>
-              <div className="bg-slate-900/90 px-3 py-2 rounded-lg border border-slate-800/80">
-                <span className="text-[10px] text-slate-500 block">Enrolled Centroid (HT/UD)</span>
-                <span className="text-slate-200 font-bold">
-                  {operatorVerification.profileCentroid?.mean_hold_ms ?? 108}ms /{' '}
-                  {operatorVerification.profileCentroid?.mean_ud_ms ?? 137}ms
-                </span>
-              </div>
-              <div className="bg-slate-900/90 px-3 py-2 rounded-lg border border-slate-800/80">
-                <span className="text-[10px] text-slate-500 block">Session & IP Binding</span>
-                <span
-                  className={`font-bold truncate block ${
-                    operatorVerification.sessionSecurity?.ipDriftDetected
-                      ? 'text-red-400'
-                      : 'text-emerald-400'
-                  }`}
-                  title={`Session: ${activeSessionId} | Bound IP: ${operatorVerification.sessionSecurity?.boundIp}`}
-                >
-                  {operatorVerification.sessionSecurity?.ipDriftDetected
-                    ? `IP DRIFT (${operatorVerification.sessionSecurity.boundIp})`
-                    : `${activeSessionId.slice(0, 11)}`}
-                </span>
-              </div>
-              <div className="bg-slate-900/90 px-3 py-2 rounded-lg border border-slate-800/80">
-                <span className="text-[10px] text-slate-500 block">Profile DB Readiness</span>
-                <span
-                  className={`font-bold ${
-                    operatorVerification.biometricReadiness?.isReadyForBiometricProfile
-                      ? 'text-emerald-400'
-                      : 'text-amber-400'
-                  }`}
-                  title={`Clean Digraphs: ${operatorVerification.biometricReadiness?.cleanDigraphsCollected ?? 0}/60 | Sibling Separability D_M: ${operatorVerification.biometricReadiness?.impostorSeparabilityScore ?? 0}`}
-                >
-                  {operatorVerification.biometricReadiness?.isReadyForBiometricProfile
-                    ? `LOCKED (${operatorVerification.biometricReadiness.cleanDigraphsCollected} keys)`
-                    : `${operatorVerification.biometricReadiness?.readinessPercent ?? 50}% Ready`}
-                </span>
-              </div>
-            </div>
+            <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
           )}
+          <span>{statusMsg.text}</span>
         </div>
+      )}
 
-        {/* Progress Bar of Current Continuous Risk */}
-        <div className="space-y-1.5">
-          <div className="flex justify-between text-xs font-mono">
-            <span className="text-slate-400">Overall Imposter Probability (Risk Score)</span>
-            <span
-              className={
-                isRiskHigh ? 'text-red-400 font-bold' : isRiskMedium ? 'text-amber-400' : 'text-emerald-400'
-              }
-            >
-              {activeRiskScore}% {isRiskHigh ? '(Step-Up Threshold Exceeded >70%)' : '(Normal Authorization)'}
-            </span>
-          </div>
-          <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                isRiskHigh ? 'bg-red-500' : isRiskMedium ? 'bg-amber-500' : 'bg-gradient-to-r from-emerald-500 to-cyan-500'
-              }`}
-              style={{ width: `${Math.max(4, Math.min(100, activeRiskScore))}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Dual Modality Extracted Feature Tensors */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-          {/* Mouse Model Box */}
-          <div className="rounded-xl bg-slate-950/70 border border-slate-800/80 p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
-                <MousePointer className="w-4 h-4 text-cyan-400" />
-                <span>Mouse Kinematics (<code className="text-cyan-400">mouse.onnx</code>)</span>
-              </div>
-              <span
-                className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
-                  (modelInference?.mouse.label ?? 0) === 0
-                    ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300'
-                    : 'bg-red-950/60 border-red-800 text-red-300'
-                }`}
-              >
-                {(modelInference?.mouse.label ?? 0) === 0 ? 'Class 0: Human' : 'Class 1: Anomaly'}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 text-[11px] font-mono text-slate-400 mt-3">
-              <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
-                <span className="text-[10px] text-slate-500 block">Mean Velocity</span>
-                <span className="text-slate-200 font-bold">
-                  {modelInference?.mouse.features.mean_vel ?? 380} px/s
-                </span>
-              </div>
-              <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
-                <span className="text-[10px] text-slate-500 block">Max Velocity</span>
-                <span className="text-slate-200 font-bold">
-                  {modelInference?.mouse.features.max_vel ?? 2400} px/s
-                </span>
-              </div>
-              <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
-                <span className="text-[10px] text-slate-500 block">Idle Ratio</span>
-                <span className="text-slate-200 font-bold">
-                  {(((modelInference?.mouse.features.idle_pct ?? 0.15)) * 100).toFixed(0)}%
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 font-mono">
-              <span>Sampled Events: {totalMouseEvents}</span>
-              <span className="text-cyan-400">
-                Imposter Prob: {((modelInference?.mouse.imposter_prob ?? 0.15) * 100).toFixed(1)}%
-              </span>
-            </div>
-          </div>
-
-          {/* Keystroke Model Box */}
-          <div className="rounded-xl bg-slate-950/70 border border-slate-800/80 p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
-                <Keyboard className="w-4 h-4 text-emerald-400" />
-                <span>Keystroke Dynamics (<code className="text-emerald-400">keystroke.onnx</code>)</span>
-              </div>
-              <span
-                className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
-                  (modelInference?.keystroke.label ?? 0) === 0
-                    ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300'
-                    : 'bg-red-950/60 border-red-800 text-red-300'
-                }`}
-              >
-                {(modelInference?.keystroke.label ?? 0) === 0 ? 'Class 0: Human' : 'Class 1: Anomaly'}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 text-[11px] font-mono text-slate-400 mt-3">
-              <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
-                <span className="text-[10px] text-slate-500 block">Mean Hold (HT)</span>
-                <span className="text-slate-200 font-bold">
-                  {((modelInference?.keystroke.features.mean_hold ?? 0.115) * 1000).toFixed(0)} ms
-                </span>
-              </div>
-              <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
-                <span className="text-[10px] text-slate-500 block">Hold StdDev</span>
-                <span className="text-slate-200 font-bold">
-                  {((modelInference?.keystroke.features.std_hold ?? 0.025) * 1000).toFixed(0)} ms
-                </span>
-              </div>
-              <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
-                <span className="text-[10px] text-slate-500 block">Flight (UD)</span>
-                <span className="text-slate-200 font-bold">
-                  {((modelInference?.keystroke.features.mean_ud ?? 0.330) * 1000).toFixed(0)} ms
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 font-mono">
-              <span>Keystrokes: {totalKeystrokes}</span>
-              <span className="text-emerald-400">
-                Imposter Prob: {((modelInference?.keystroke.imposter_prob ?? 0.05) * 100).toFixed(1)}%
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Interactive Grid: Transfer Wire + Ledger Table */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Column: Authorized Transfer Form (5 cols) */}
-        <div className="lg:col-span-5">
-          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-6 sm:p-7 shadow-xl h-full flex flex-col justify-between">
+      {/* 3 & 4: Two-Column Main Area — Quick Transfer Form + Recent Activity */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* 3. Quick Transfer Form (5 cols) */}
+        <section className="lg:col-span-5">
+          <div className="nexus-card-neumorphic p-6 sm:p-7 h-full flex flex-col justify-between">
             <div>
-              <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                    <Send className="w-4 h-4" />
-                  </div>
-                  <h2 className="text-lg font-semibold text-white">Execute Secure Transfer</h2>
+              <div className="flex items-center gap-2.5 mb-5">
+                <div className="p-2 rounded-xl bg-blue-50 text-blue-700 border border-blue-200">
+                  <Send className="w-4 h-4" />
                 </div>
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                  RLS-Gated
-                </span>
+                <div>
+                  <h2 className="text-base font-bold text-slate-950">Quick transfer</h2>
+                  <p className="text-xs text-slate-700 font-medium">Send money instantly to any account</p>
+                </div>
               </div>
 
               <form onSubmit={initiateTransfer} className="space-y-4">
-                {/* Destination Account */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Destination IBAN / Routing Number
+                  <label
+                    htmlFor="recipient-account"
+                    className="block text-xs font-bold text-slate-800 mb-1.5"
+                  >
+                    Recipient account
                   </label>
                   <input
+                    id="recipient-account"
+                    ref={recipientInputRef}
                     type="text"
                     value={targetAccount}
                     onChange={(e) => setTargetAccount(e.target.value)}
-                    placeholder="e.g. US-ACH-8910-234"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 text-sm placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+                    placeholder="e.g. ACC-KE-01948201"
                     required
+                    className="nexus-input-neumorphic w-full px-3.5 py-2.5 rounded-xl text-sm"
                   />
-                  {/* Preset Account Pills */}
                   <div className="flex flex-wrap gap-1.5 mt-2">
-                    {['Payroll Vault (ACC-902)', 'Offshore Custody (CH-84)', 'Stripe Settlement'].map((preset) => (
+                    {[
+                      'ACC-KE-01948201 (Alice W.)',
+                      'ACC-KE-08831044 (Brian O.)',
+                      'SME-FLOAT-7740 (Wakala Float)',
+                    ].map((preset) => (
                       <button
                         key={preset}
                         type="button"
                         onClick={() => setTargetAccount(preset)}
-                        className="text-[11px] px-2 py-0.5 rounded-md bg-slate-950/70 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+                        className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 transition-colors duration-150 cursor-pointer"
                       >
                         {preset}
                       </button>
@@ -875,309 +517,212 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Amount */}
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-medium text-slate-300">Transfer Amount ($ USD)</label>
-                    <span className="text-[11px] text-slate-500 font-mono">Max: ${availableBalance.toLocaleString()}</span>
+                  <div className="flex justify-between text-xs mb-1.5">
+                    <label htmlFor="transfer-amount" className="font-bold text-slate-800">
+                      Amount (KSh)
+                    </label>
+                    <span className="text-slate-600 font-semibold tabular-nums">
+                      Max: {formatKes(availableBalance)}
+                    </span>
                   </div>
                   <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-sm">$</span>
+                    <span className="text-xs font-bold text-slate-700 absolute left-3.5 top-1/2 -translate-y-1/2">
+                      KSh
+                    </span>
                     <input
+                      id="transfer-amount"
                       type="number"
-                      step="any"
                       min="1"
+                      step="any"
                       value={transferAmount}
                       onChange={(e) => setTransferAmount(e.target.value)}
-                      placeholder="0.00"
-                      className="w-full pl-8 pr-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+                      placeholder="500.00"
                       required
+                      className="nexus-input-neumorphic w-full pl-12 pr-3.5 py-2.5 rounded-xl text-sm tabular-nums"
                     />
                   </div>
-
-                  {/* Quick Amount Buttons */}
                   <div className="grid grid-cols-4 gap-1.5 mt-2">
-                    {[100, 500, 1000, 5000].map((amt) => (
+                    {[250, 500, 1000, 2500].map((amt) => (
                       <button
                         key={amt}
                         type="button"
-                        onClick={() => setTransferAmount(amt.toString())}
-                        className={`text-xs py-1 rounded-md border font-mono transition-colors cursor-pointer ${
-                          amt >= 5000
-                            ? 'bg-amber-950/30 border-amber-800/50 text-amber-400 hover:bg-amber-900/30'
-                            : 'bg-slate-950/80 border-slate-800 text-slate-300 hover:bg-slate-800'
-                        }`}
-                        title={amt >= 5000 ? 'Amounts >= $5,000 trigger Passkey Step-Up' : undefined}
+                        onClick={() => setTransferAmount(String(amt))}
+                        className="py-1.5 rounded-lg border border-slate-300 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 text-xs font-bold text-slate-800 hover:text-blue-800 tabular-nums transition-colors duration-150 cursor-pointer shadow-2xs"
                       >
-                        ${amt >= 1000 ? `${amt / 1000}k` : amt}
-                        {amt >= 5000 && ' 🔒'}
+                        KSh {amt.toLocaleString()}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                {/* Memo */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Memo / Transaction Purpose (Optional)
+                  <label
+                    htmlFor="transfer-memo"
+                    className="block text-xs font-bold text-slate-800 mb-1.5"
+                  >
+                    Note (optional)
                   </label>
                   <input
+                    id="transfer-memo"
                     type="text"
                     value={transferMemo}
                     onChange={(e) => setTransferMemo(e.target.value)}
-                    placeholder="e.g. Q4 Infrastructure Funding"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 text-sm placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+                    placeholder="e.g. Supplier invoice #402"
+                    className="nexus-input-neumorphic w-full px-3.5 py-2.5 rounded-xl text-sm"
                   />
                 </div>
 
-                {/* Submit Button */}
                 <button
                   type="submit"
                   disabled={isTransferring}
-                  className={`w-full mt-2 py-3 px-4 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer ${
-                    isRiskHigh
-                      ? 'bg-red-600 hover:bg-red-500 text-white shadow-red-900/30'
-                      : 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 shadow-cyan-500/20 font-bold'
-                  }`}
+                  className="nexus-btn-neumorphic w-full py-3 px-4 rounded-xl font-bold text-sm bg-blue-600 hover:bg-blue-700 text-white transition-colors duration-150 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
                 >
                   {isTransferring ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Verifying Database Policy...</span>
-                    </>
-                  ) : isRiskHigh ? (
-                    <>
-                      <Lock className="w-4 h-4" />
-                      <span>Authenticate with Passkey to Transfer</span>
+                      <span>Sending...</span>
                     </>
                   ) : (
                     <>
                       <Send className="w-4 h-4" />
-                      <span>Authorize Transfer</span>
+                      <span>Send money</span>
                     </>
                   )}
                 </button>
               </form>
             </div>
-
-            {/* Status / Feedback Banner */}
-            {statusMsg && (
-              <div
-                className={`mt-4 p-3.5 rounded-xl border text-xs flex items-start gap-2.5 ${
-                  statusMsg.type === 'success'
-                    ? 'bg-emerald-950/40 border-emerald-800 text-emerald-300'
-                    : statusMsg.type === 'error'
-                    ? 'bg-red-950/40 border-red-800 text-red-300'
-                    : statusMsg.type === 'warning'
-                    ? 'bg-amber-950/40 border-amber-800 text-amber-300'
-                    : 'bg-cyan-950/40 border-cyan-800 text-cyan-300'
-                }`}
-              >
-                {statusMsg.type === 'success' ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                ) : (
-                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                )}
-                <div>
-                  <p className="font-medium">{statusMsg.text}</p>
-                  {statusMsg.txId && (
-                    <p className="mt-1 font-mono text-[11px] opacity-80">TX: {statusMsg.txId}</p>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
-        </div>
+        </section>
 
-        {/* Right Column: Live Ledger Table from Supabase (7 cols) */}
-        <div className="lg:col-span-7">
-          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-6 sm:p-7 shadow-xl h-full flex flex-col justify-between">
+        {/* 4. Recent Activity List (7 cols) */}
+        <section className="lg:col-span-7">
+          <div className="nexus-card-neumorphic p-6 sm:p-7 h-full flex flex-col justify-between">
             <div>
-              <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    <History className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-semibold text-white">Live PostgreSQL Ledger</h2>
-                    <p className="text-xs text-slate-400">
-                      Queried directly from <code className="text-cyan-400 font-mono">public.financial_ledgers</code>
-                    </p>
-                  </div>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-base font-bold text-slate-950">Recent activity</h2>
+                  <p className="text-xs text-slate-700 font-medium">
+                    Your latest transfers and daily reward credits
+                  </p>
                 </div>
-                <span className="text-xs font-mono text-slate-500">
-                  {transactions.length} record{transactions.length === 1 ? '' : 's'}
-                </span>
+
+                {transactions.length > 5 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllActivity((prev) => !prev)}
+                    className="text-xs font-bold text-blue-700 hover:text-blue-800 transition-colors cursor-pointer"
+                  >
+                    {showAllActivity ? 'Show latest 5' : `View all (${transactions.length})`}
+                  </button>
+                )}
               </div>
 
               {isLoadingData ? (
-                <div className="py-16 text-center text-slate-500 flex flex-col items-center justify-center gap-2 text-xs">
-                  <RefreshCw className="w-5 h-5 animate-spin text-cyan-400" />
-                  <span>Loading ledger records from Supabase...</span>
+                <div className="py-12 text-center text-sm font-medium text-slate-600">
+                  Loading your recent activity...
                 </div>
               ) : transactions.length === 0 ? (
-                <div className="py-12 px-4 text-center rounded-xl bg-slate-950/60 border border-slate-800/80 my-4">
-                  <History className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-                  <h3 className="text-sm font-semibold text-slate-300">No Transactions Yet</h3>
-                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                    Your authenticated account is ready. Perform your first transfer on the left, or seed a demonstration record.
+                <div className="nexus-well-inset py-12 text-center p-6">
+                  <p className="text-sm font-bold text-slate-900">No transactions yet</p>
+                  <p className="text-xs font-medium text-slate-700 mt-1 max-w-sm mx-auto">
+                    Send a transfer on the left or complete a daily reward challenge to see your activity here.
                   </p>
-                  <button
-                    onClick={handleSeedInitialLedger}
-                    disabled={isTransferring}
-                    className="mt-4 px-3.5 py-2 rounded-xl text-xs font-semibold bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    <span>Seed Demo Ledger Record</span>
-                  </button>
                 </div>
               ) : (
-                <div className="nexus-minimal-scroller max-h-[340px] overflow-y-auto overflow-x-auto rounded-xl border border-slate-800/60">
-                  <table className="w-full text-left text-xs text-slate-300">
-                    <thead className="sticky top-0 z-10 bg-slate-950/95 backdrop-blur-sm text-slate-400 uppercase tracking-wider font-mono text-[10px] border-b border-slate-800">
-                      <tr>
-                        <th className="py-3 px-3">Target Account / Memo</th>
-                        <th className="py-3 px-3">Date</th>
-                        <th className="py-3 px-3">Status</th>
-                        <th className="py-3 px-3 text-right">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60">
-                      {transactions.map((tx) => (
-                        <tr key={tx.transaction_id} className="hover:bg-slate-800/30 transition-colors">
-                          <td className="py-3 px-3 font-medium text-white max-w-[200px] truncate">
-                            {tx.target_account}
-                          </td>
-                          <td className="py-3 px-3 text-slate-400 whitespace-nowrap">
-                            {new Date(tx.created_at).toLocaleDateString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </td>
-                          <td className="py-3 px-3">
-                            <span
-                              className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono capitalize ${
-                                tx.status?.toLowerCase() === 'completed'
-                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                  : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                              }`}
-                            >
-                              {tx.status || 'Settled'}
-                            </span>
-                          </td>
-                          <td
-                            className={`py-3 px-3 text-right font-mono font-bold whitespace-nowrap ${
-                              Number(tx.transaction_amount) < 0 ? 'text-emerald-400' : 'text-slate-100'
+                <div className="nexus-minimal-scroller max-h-[380px] overflow-y-auto divide-y divide-slate-200 pr-1">
+                  {visibleTransactions.map((tx) => {
+                    const rawAmount = Number(tx.transaction_amount) || 0;
+                    const isCredit = rawAmount < 0;
+                    const absAmount = Math.abs(rawAmount);
+
+                    return (
+                      <div
+                        key={tx.transaction_id}
+                        className="py-3.5 flex items-center justify-between gap-4 hover:bg-slate-50/90 px-2.5 rounded-xl transition-colors"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div
+                            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                              isCredit
+                                ? 'bg-teal-100 text-teal-800 border border-teal-300'
+                                : 'bg-slate-100 text-slate-800 border border-slate-300'
                             }`}
                           >
-                            {Number(tx.transaction_amount) < 0
-                              ? `+$${Math.abs(Number(tx.transaction_amount)).toLocaleString('en-US', {
-                                  minimumFractionDigits: 2,
-                                })}`
-                              : `-$${Number(tx.transaction_amount).toLocaleString('en-US', {
-                                  minimumFractionDigits: 2,
-                                })}`}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                            {isCredit ? (
+                              <ArrowDownLeft className="w-4 h-4" />
+                            ) : (
+                              <ArrowUpRight className="w-4 h-4" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-950 truncate">
+                              {cleanAccountLabel(tx.target_account)}
+                            </p>
+                            <p className="text-xs font-medium text-slate-600">
+                              {new Date(tx.created_at).toLocaleDateString('en-KE', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <p
+                            className={`text-sm font-bold tabular-nums ${
+                              isCredit ? 'text-teal-800 font-extrabold' : 'text-slate-950'
+                            }`}
+                          >
+                            {isCredit ? `+${formatKes(absAmount)}` : `-${formatKes(absAmount)}`}
+                          </p>
+                          <p className="text-[11px] font-semibold text-slate-600 capitalize">
+                            {tx.status?.toLowerCase() === 'completed' ? 'Completed' : tx.status || 'Completed'}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
 
-            <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
-              <span className="font-mono">RLS Policy: auth.uid() = user_id</span>
-              <span className="text-emerald-400 font-mono">Zero Trust Enforced</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Security Audit Feed from Supabase */}
-      <div className="rounded-2xl bg-slate-900 border border-slate-800 p-6 shadow-xl">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-              <KeyRound className="w-4 h-4" />
-            </div>
-            <div>
-              <h2 className="text-base font-semibold text-white">Cryptographic Security Audit Log</h2>
-              <p className="text-xs text-slate-400">
-                Fetched live from <code className="text-cyan-400 font-mono">public.security_audit_logs</code>
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => router.push('/dashboard/security')}
-            className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition-colors cursor-pointer"
-          >
-            <span>Manage Passkeys</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {auditLogs.length === 0 ? (
-          <div className="py-6 text-center text-slate-500 text-xs">
-            No audit log entries recorded yet. Authentication events and passkey ceremonies will appear here.
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-800/60">
-            {auditLogs.map((log) => (
-              <div
-                key={log.id || (log as any).log_id}
-                className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
-              >
-                <div className="flex items-center gap-2.5">
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      log.event_type.includes('SUCCESS') || log.event_type.includes('REGISTERED') || log.event_type.includes('VERIFIED')
-                        ? 'bg-emerald-400'
-                        : 'bg-amber-400'
-                    }`}
-                  />
-                  <span className="font-mono font-semibold text-slate-200">{log.event_type}</span>
-                  {log.recorded_risk_score !== undefined && (
-                    <span className="text-[11px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
-                      Risk: {log.recorded_risk_score}%
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-4 text-slate-400 text-[11px] font-mono">
-                  {log.ip_address && <span>IP: {log.ip_address}</span>}
-                  <span>
-                    {new Date((log as any).timestamp || log.created_at).toLocaleTimeString('en-US', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      second: '2-digit',
-                    })}
-                  </span>
-                </div>
+            {userProfile && !userProfile.hardware_enrolled && (
+              <div className="mt-4 pt-4 border-t border-slate-200 flex items-center justify-between text-xs">
+                <span className="text-slate-700 font-medium">
+                  Add a device passkey for faster one-tap verification
+                </span>
+                <Link
+                  href="/dashboard/security"
+                  className="font-bold text-blue-700 hover:text-blue-800 flex items-center gap-1"
+                >
+                  <span>Set up passkey</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </Link>
               </div>
-            ))}
+            )}
           </div>
-        )}
+        </section>
       </div>
 
-      {/* Step-Up Passkey / Biometric Modal */}
+      {/* Step-Up Passkey Modal */}
       <StepUpModal
         isOpen={isStepUpOpen}
         currentRiskScore={activeRiskScore}
         actionDescription={
           pendingTransferPayload
-            ? `Authorize Transfer of $${pendingTransferPayload.amount.toLocaleString()} to ${pendingTransferPayload.targetAccount}`
-            : 'Elevated Risk Authorization'
+            ? `Send ${formatKes(pendingTransferPayload.amount)} to ${pendingTransferPayload.targetAccount}`
+            : 'Confirm account access'
         }
-        onVerified={() => handleStepUpVerified('passkey')}
-        onVerify={(method) => handleStepUpVerified(method)}
+        onVerified={handleStepUpVerified}
+        onVerify={() => handleStepUpVerified()}
         onCancel={() => {
           setIsStepUpOpen(false);
           setStatusMsg({
-            type: 'error',
-            text: 'Transfer aborted: Step-Up biometric verification was cancelled.',
+            type: 'warning',
+            text: 'Verification was cancelled.',
           });
         }}
       />

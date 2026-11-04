@@ -29,7 +29,7 @@ export function StepUpModal({
   onCancel,
   onVerified,
   onVerify,
-  actionDescription = 'Elevated Security Action',
+  actionDescription = 'Confirm account action',
   currentRiskScore = 75,
 }: StepUpModalProps) {
   const supabase = createClient();
@@ -40,6 +40,8 @@ export function StepUpModal({
   const [otpSent, setOtpSent] = useState(false);
 
   if (!isOpen) return null;
+
+  const trustScore = Math.max(0, Math.min(100, Math.round(100 - currentRiskScore)));
 
   const handleClose = () => {
     if (onClose) onClose();
@@ -52,19 +54,18 @@ export function StepUpModal({
     handleClose();
   };
 
-  // Primary: Passkey Verification
   const handlePasskeyVerification = async () => {
     setIsVerifying(true);
     setError(null);
 
     try {
-      const { data, error: passkeyError } = await signInWithPasskey(supabase);
+      const { error: passkeyError } = await signInWithPasskey(supabase);
 
       if (passkeyError) {
         if (passkeyError.name === 'NotAllowedError') {
-          setError('Biometric gesture was cancelled.');
+          setError('Passkey prompt was cancelled.');
         } else {
-          setError(passkeyError.message || 'Passkey re-authentication failed.');
+          setError(passkeyError.message || 'Passkey verification did not complete.');
         }
         setIsVerifying(false);
         return;
@@ -86,13 +87,12 @@ export function StepUpModal({
 
       handleSuccess('passkey');
     } catch (err: any) {
-      setError(err.message || 'Step-up verification encountered an error.');
+      setError(err.message || 'Verification encountered an error.');
     } finally {
       setIsVerifying(false);
     }
   };
 
-  // Fallback: OTP Verification
   const handleRequestOtp = async () => {
     setIsVerifying(true);
     setError(null);
@@ -101,7 +101,7 @@ export function StepUpModal({
         data: { user },
       } = await supabase.auth.getUser();
 
-      if (!user?.email) throw new Error('User email not found in active session.');
+      if (!user?.email) throw new Error('Account email not found.');
 
       const { error: otpError } = await supabase.auth.signInWithOtp({
         email: user.email,
@@ -113,7 +113,7 @@ export function StepUpModal({
       if (otpError) throw otpError;
       setOtpSent(true);
     } catch (err: any) {
-      setError(err.message || 'Failed to dispatch verification code.');
+      setError(err.message || 'Could not send verification code.');
     } finally {
       setIsVerifying(false);
     }
@@ -161,37 +161,37 @@ export function StepUpModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-slate-900 border border-amber-500/40 rounded-2xl p-6 sm:p-8 shadow-[0_0_50px_rgba(245,158,11,0.15)] relative">
+    <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className="w-full max-w-md nexus-card-neumorphic rounded-3xl p-6 sm:p-8 shadow-2xl relative">
         <button
           onClick={handleClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-white cursor-pointer"
+          className="absolute top-5 right-5 text-slate-500 hover:text-slate-900 cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-3 text-amber-400 mb-4">
-          <div className="p-2.5 rounded-xl bg-amber-950/60 border border-amber-500/30">
+        <div className="flex items-center gap-3.5 mb-5">
+          <div className="p-3 rounded-2xl bg-amber-100 border border-amber-300 text-amber-900">
             <ShieldAlert className="w-6 h-6" />
           </div>
           <div>
-            <h3 className="font-bold text-white text-lg">Step-Up Verification</h3>
-            <p className="text-xs text-amber-400/80 font-mono">
-              Risk Score Elevated: {currentRiskScore}/100
+            <h3 className="font-bold text-slate-950 text-xl tracking-tight">Confirm it&apos;s you</h3>
+            <p className="text-xs text-amber-950 font-bold tabular-nums">
+              Current trust score: {trustScore} / 100
             </p>
           </div>
         </div>
 
-        <p className="text-xs text-slate-300 mb-6 leading-relaxed">
-          NexusID Zero-Trust engine detected anomalous behavioral telemetry. Cryptographic re-verification is required to authorize:
-          <span className="block mt-1 font-semibold text-white bg-slate-950 p-2 rounded border border-slate-800">
+        <p className="text-xs text-slate-800 font-medium mb-5 leading-relaxed">
+          To keep your account safe, please verify once with your passkey to complete:
+          <span className="block mt-2 font-bold text-slate-950 nexus-well-inset p-3.5 rounded-2xl">
             {actionDescription}
           </span>
         </p>
 
         {error && (
-          <div className="mb-4 p-3 rounded-lg bg-red-950/40 border border-red-800 text-red-300 text-xs flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 shrink-0 text-red-400" />
+          <div className="mb-5 p-3.5 rounded-xl bg-red-50 border border-red-300 text-red-950 text-xs font-semibold flex items-center gap-2.5">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-red-700" />
             <span>{error}</span>
           </div>
         )}
@@ -201,17 +201,17 @@ export function StepUpModal({
             <button
               onClick={handlePasskeyVerification}
               disabled={isVerifying}
-              className="w-full py-3.5 px-4 rounded-xl font-semibold text-slate-950 bg-gradient-to-r from-amber-400 to-emerald-400 hover:from-amber-300 hover:to-emerald-300 active:scale-[0.99] disabled:opacity-50 transition-all shadow-[0_0_20px_rgba(245,158,11,0.2)] flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full py-3.5 px-4 rounded-xl font-bold text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm flex items-center justify-center gap-2 cursor-pointer"
             >
               {isVerifying ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Verifying Biometrics...</span>
+                  <span>Verifying passkey...</span>
                 </>
               ) : (
                 <>
                   <Fingerprint className="w-5 h-5" />
-                  <span>Verify with Passkey</span>
+                  <span>Verify with passkey</span>
                 </>
               )}
             </button>
@@ -220,33 +220,37 @@ export function StepUpModal({
               <button
                 type="button"
                 onClick={() => setFallbackMode(true)}
-                className="text-xs text-slate-400 hover:text-slate-300 underline cursor-pointer"
+                className="text-xs font-semibold text-slate-700 hover:text-blue-700 underline cursor-pointer"
               >
-                Hardware key not accessible? Use Email OTP
+                Use an email verification code instead
               </button>
             </div>
           </div>
         ) : (
           <div className="space-y-4">
             {!otpSent ? (
-              <div className="text-center space-y-3">
-                <p className="text-xs text-slate-400">
-                  Send a one-time 6-digit verification code to your verified email address.
+              <div className="text-center space-y-3.5">
+                <p className="text-xs text-slate-800 font-medium">
+                  We can send a 6-digit code to your registered email address.
                 </p>
                 <button
                   type="button"
                   onClick={handleRequestOtp}
                   disabled={isVerifying}
-                  className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full py-3 px-4 rounded-xl text-xs font-bold text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-300 flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  {isVerifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-                  <span>Request Verification Code</span>
+                  {isVerifying ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Mail className="w-4 h-4 text-blue-700" />
+                  )}
+                  <span>Send verification code</span>
                 </button>
               </div>
             ) : (
-              <form onSubmit={handleVerifyOtp} className="space-y-3">
-                <label className="block text-xs font-medium text-slate-300">
-                  Enter 6-Digit Email Code
+              <form onSubmit={handleVerifyOtp} className="space-y-3.5">
+                <label className="block text-xs font-bold text-slate-900">
+                  Enter 6-digit email code
                 </label>
                 <input
                   type="text"
@@ -255,15 +259,19 @@ export function StepUpModal({
                   onChange={(e) => setOtpCode(e.target.value)}
                   placeholder="123456"
                   required
-                  className="w-full text-center tracking-widest font-mono text-lg py-2 rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  className="w-full nexus-input-neumorphic text-center tracking-widest text-lg font-bold tabular-nums py-2.5 rounded-xl text-slate-950"
                 />
                 <button
                   type="submit"
                   disabled={isVerifying}
-                  className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full py-3 px-4 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 flex items-center justify-center gap-2 cursor-pointer shadow-sm"
                 >
-                  {isVerifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                  <span>Confirm Step-Up Authorization</span>
+                  {isVerifying ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4" />
+                  )}
+                  <span>Confirm code</span>
                 </button>
               </form>
             )}
@@ -272,9 +280,9 @@ export function StepUpModal({
               <button
                 type="button"
                 onClick={() => setFallbackMode(false)}
-                className="text-xs text-slate-400 hover:text-slate-300 underline cursor-pointer"
+                className="text-xs font-semibold text-slate-700 hover:text-blue-700 underline cursor-pointer"
               >
-                Back to Passkey Biometric Verification
+                Back to passkey verification
               </button>
             </div>
           </div>

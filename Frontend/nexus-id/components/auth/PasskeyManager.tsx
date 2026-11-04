@@ -42,7 +42,7 @@ export function PasskeyManager() {
       setPasskeys(Array.isArray(data) ? (data as PasskeyCredential[]) : []);
     } catch (err: any) {
       console.error('Fetch passkeys error:', err);
-      setError(err.message || 'Failed to fetch registered passkeys.');
+      setError(err.message || 'Could not load your registered passkeys.');
     } finally {
       setIsLoading(false);
     }
@@ -69,11 +69,11 @@ export function PasskeyManager() {
         }),
       });
 
-      setSuccess('Passkey renamed successfully.');
+      setSuccess('Passkey name updated.');
       setEditingId(null);
       await fetchPasskeys();
     } catch (err: any) {
-      setError(err.message || 'Failed to rename passkey.');
+      setError(err.message || 'Could not rename passkey.');
     } finally {
       setActionLoading(false);
     }
@@ -99,11 +99,11 @@ export function PasskeyManager() {
         }),
       });
 
-      setSuccess('Passkey revoked.');
+      setSuccess('Passkey removed.');
       setDeletingPasskey(null);
       await fetchPasskeys();
     } catch (err: any) {
-      setError(err.message || 'Failed to revoke passkey.');
+      setError(err.message || 'Could not remove passkey.');
     } finally {
       setActionLoading(false);
     }
@@ -115,13 +115,13 @@ export function PasskeyManager() {
     setError(null);
     try {
       const { data, error: regError } = await registerPasskey(supabase, {
-        friendlyName: newKeyName.trim() || 'New Security Key',
+        friendlyName: newKeyName.trim() || 'My Device Passkey',
       });
       if (regError) throw regError;
 
       if (data?.id) {
         try {
-          await updatePasskey(supabase, data.id, newKeyName.trim() || 'New Security Key');
+          await updatePasskey(supabase, data.id, newKeyName.trim() || 'My Device Passkey');
         } catch (updateErr) {
           console.warn('Update friendly name warning:', updateErr);
         }
@@ -133,21 +133,21 @@ export function PasskeyManager() {
         body: JSON.stringify({
           eventType: 'PASSKEY_REGISTERED',
           metadata: {
-            friendly_name: newKeyName.trim() || 'New Security Key',
+            friendly_name: newKeyName.trim() || 'My Device Passkey',
             passkey_id: data?.id,
           },
         }),
       });
 
-      setSuccess('New passkey enrolled successfully.');
+      setSuccess('New passkey added.');
       setShowAddModal(false);
       setNewKeyName('');
       await fetchPasskeys();
     } catch (err: any) {
       if (err.name === 'NotAllowedError') {
-        setError('Biometric registration was cancelled.');
+        setError('Passkey setup was cancelled.');
       } else {
-        setError(err.message || 'Failed to add passkey.');
+        setError(err.message || 'Could not add passkey.');
       }
     } finally {
       setActionLoading(false);
@@ -155,15 +155,17 @@ export function PasskeyManager() {
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-800">
+    <div className="nexus-card-neumorphic rounded-3xl p-6 sm:p-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-200">
         <div>
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <KeyRound className="w-5 h-5 text-cyan-400" />
-            <span>Hardware Passkeys & WebAuthn</span>
+          <h2 className="text-lg font-bold text-slate-950 flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-200/80 flex items-center justify-center text-blue-700">
+              <KeyRound className="w-4 h-4" />
+            </div>
+            <span>Your registered passkeys</span>
           </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Manage biometric authenticators (Face ID, Touch ID, Windows Hello) and FIDO2 Security Keys bound to your account.
+          <p className="text-xs text-slate-800 font-medium mt-1.5 leading-relaxed">
+            Use Face ID, Touch ID, Windows Hello, or a hardware security key to sign in and confirm transfers with a single touch.
           </p>
         </div>
         <button
@@ -171,49 +173,51 @@ export function PasskeyManager() {
             setNewKeyName('');
             setShowAddModal(true);
           }}
-          className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 flex items-center gap-1.5 transition-colors cursor-pointer"
+          className="nexus-btn-neumorphic px-4 py-2.5 rounded-xl text-xs font-bold text-blue-700 flex items-center gap-1.5 cursor-pointer self-start sm:self-center"
         >
           <Plus className="w-4 h-4" />
-          <span>Add New Passkey</span>
+          <span>Add passkey</span>
         </button>
       </div>
 
       {error && (
-        <div className="mt-4 p-3 rounded-lg bg-red-950/40 border border-red-800 text-red-300 text-xs flex items-center justify-between">
+        <div className="mt-5 p-4 rounded-xl bg-red-50 border border-red-300 text-red-950 text-xs font-semibold flex items-center justify-between">
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300 cursor-pointer">
+          <button onClick={() => setError(null)} className="text-red-700 hover:text-red-950 cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
       {success && (
-        <div className="mt-4 p-3 rounded-lg bg-emerald-950/40 border border-emerald-800 text-emerald-300 text-xs flex items-center justify-between">
+        <div className="mt-5 p-4 rounded-xl bg-teal-50 border border-teal-300 text-teal-950 text-xs font-semibold flex items-center justify-between">
           <span>{success}</span>
-          <button onClick={() => setSuccess(null)} className="text-emerald-400 hover:text-emerald-300 cursor-pointer">
+          <button onClick={() => setSuccess(null)} className="text-teal-800 hover:text-teal-950 cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
-      <div className="mt-6 divide-y divide-slate-800/60">
+      <div className="mt-6 divide-y divide-slate-200/80">
         {isLoading ? (
-          <div className="py-8 text-center text-slate-500 flex items-center justify-center gap-2 text-sm">
-            <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
-            <span>Querying cryptographic credentials...</span>
+          <div className="py-10 text-center text-slate-800 font-medium flex items-center justify-center gap-2.5 text-sm">
+            <Loader2 className="w-5 h-5 animate-spin text-blue-700" />
+            <span>Loading your passkeys...</span>
           </div>
         ) : passkeys.length === 0 ? (
-          <div className="py-8 text-center bg-slate-950/40 rounded-xl border border-slate-800/80 p-6">
-            <Fingerprint className="w-10 h-10 text-slate-600 mx-auto mb-2" />
-            <p className="text-sm text-slate-300 font-medium">No Passkeys Registered</p>
-            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-              You are currently relying on Magic Link email recovery. Add a passkey to secure your account against phishing.
+          <div className="py-10 text-center nexus-well-inset rounded-2xl p-8 my-2">
+            <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 flex items-center justify-center mx-auto mb-3 text-blue-700">
+              <Fingerprint className="w-6 h-6" />
+            </div>
+            <p className="text-sm text-slate-950 font-bold">No passkeys added yet</p>
+            <p className="text-xs text-slate-800 font-medium mt-1.5 max-w-sm mx-auto leading-relaxed">
+              Add a passkey on this device so you can sign in and approve high-value transfers with a single biometric tap.
             </p>
           </div>
         ) : (
           passkeys.map((key) => (
-            <div key={key.id} className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-cyan-400">
+            <div key={key.id} className="py-4.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-3.5">
+                <div className="p-3 rounded-2xl bg-blue-50 border border-blue-200/80 text-blue-700">
                   <Fingerprint className="w-5 h-5" />
                 </div>
                 <div>
@@ -223,48 +227,48 @@ export function PasskeyManager() {
                         type="text"
                         value={editingName}
                         onChange={(e) => setEditingName(e.target.value)}
-                        className="px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                        className="nexus-input-neumorphic px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-950"
                         autoFocus
                       />
                       <button
                         onClick={() => handleRename(key.id)}
                         disabled={actionLoading}
-                        className="p-1 text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                        className="p-1 text-teal-700 hover:text-teal-900 cursor-pointer"
                       >
                         <Check className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => setEditingId(null)}
-                        className="p-1 text-slate-400 hover:text-slate-300 cursor-pointer"
+                        className="p-1 text-slate-600 hover:text-slate-900 cursor-pointer"
                       >
                         <X className="w-4 h-4" />
                       </button>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
-                      <h4 className="text-sm font-semibold text-slate-200">
-                        {key.friendly_name || 'Passkey Authenticator'}
+                      <h4 className="text-sm font-bold text-slate-950">
+                        {key.friendly_name || 'Device Passkey'}
                       </h4>
                       <button
                         onClick={() => {
                           setEditingId(key.id);
                           setEditingName(key.friendly_name || '');
                         }}
-                        className="text-slate-500 hover:text-slate-400 cursor-pointer"
-                        title="Rename Passkey"
+                        className="text-slate-600 hover:text-slate-900 cursor-pointer"
+                        title="Rename passkey"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   )}
 
-                  <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
-                    <span className="flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
-                      Created {new Date(key.created_at).toLocaleDateString()}
+                  <div className="flex items-center gap-3 text-xs text-slate-700 font-medium mt-1.5">
+                    <span className="flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-slate-600" />
+                      Added {new Date(key.created_at).toLocaleDateString('en-KE')}
                     </span>
                     {key.last_used_at && (
-                      <span>• Last used {new Date(key.last_used_at).toLocaleDateString()}</span>
+                      <span className="text-teal-800 font-semibold">• Last used {new Date(key.last_used_at).toLocaleDateString('en-KE')}</span>
                     )}
                   </div>
                 </div>
@@ -273,10 +277,10 @@ export function PasskeyManager() {
               <div className="flex items-center gap-2 self-end sm:self-center">
                 <button
                   onClick={() => setDeletingPasskey(key)}
-                  className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-950/30 border border-transparent hover:border-red-900/50 transition-colors flex items-center gap-1.5 cursor-pointer"
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold text-red-700 hover:text-red-900 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  <span>Revoke</span>
+                  <span>Remove</span>
                 </button>
               </div>
             </div>
@@ -285,36 +289,42 @@ export function PasskeyManager() {
       </div>
 
       {deletingPasskey && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
-            <div className="flex items-center gap-3 text-red-400 mb-3">
-              <AlertTriangle className="w-6 h-6" />
-              <h3 className="font-semibold text-white">Revoke Passkey?</h3>
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-sm nexus-card-neumorphic rounded-3xl p-6 shadow-2xl">
+            <div className="flex items-center gap-3 text-red-700 mb-3">
+              <div className="w-9 h-9 rounded-xl bg-red-50 border border-red-200 flex items-center justify-center text-red-700">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <h3 className="font-bold text-slate-950 text-base">Remove passkey?</h3>
             </div>
-            <p className="text-xs text-slate-400">
-              Are you sure you want to revoke <span className="text-slate-200 font-semibold">{deletingPasskey.friendly_name || 'this passkey'}</span>? This device will no longer be able to authenticate.
+            <p className="text-xs text-slate-800 font-medium leading-relaxed">
+              Are you sure you want to remove{' '}
+              <span className="text-slate-950 font-bold">
+                {deletingPasskey.friendly_name || 'this passkey'}
+              </span>
+              ? You won&apos;t be able to use it to sign in on this device.
             </p>
 
             {passkeys.length === 1 && (
-              <div className="mt-3 p-2.5 rounded-lg bg-amber-950/40 border border-amber-800/60 text-amber-300 text-xs">
-                ⚠️ <span className="font-semibold">Warning:</span> This is your last remaining passkey. If you revoke it, you will have to use Magic Link recovery to sign in.
+              <div className="mt-3.5 p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 text-xs font-medium">
+                <span className="font-bold">Note:</span> This is your only passkey. If you remove it, you will need to use an email sign-in link next time.
               </div>
             )}
 
-            <div className="mt-6 flex justify-end gap-2">
+            <div className="mt-6 flex justify-end gap-2.5">
               <button
                 onClick={() => setDeletingPasskey(null)}
-                className="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-300 bg-slate-800 cursor-pointer"
+                className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-800 hover:bg-slate-100 border border-slate-300 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDelete}
                 disabled={actionLoading}
-                className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-red-600 hover:bg-red-500 flex items-center gap-1.5 cursor-pointer"
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 flex items-center gap-1.5 cursor-pointer shadow-sm"
               >
                 {actionLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>Confirm Revocation</span>
+                <span>Remove passkey</span>
               </button>
             </div>
           </div>
@@ -322,44 +332,52 @@ export function PasskeyManager() {
       )}
 
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
-            <h3 className="font-semibold text-white mb-2 flex items-center gap-2">
-              <KeyRound className="w-5 h-5 text-cyan-400" />
-              <span>Register New Passkey</span>
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-sm nexus-card-neumorphic rounded-3xl p-6 shadow-2xl">
+            <h3 className="font-bold text-slate-950 mb-1.5 flex items-center gap-2.5 text-base">
+              <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700">
+                <KeyRound className="w-4 h-4" />
+              </div>
+              <span>Add a new passkey</span>
             </h3>
-            <p className="text-xs text-slate-400 mb-4">
-              Connect your security key (e.g. YubiKey) or prepare TouchID/Windows Hello on this device.
+            <p className="text-xs text-slate-800 font-medium mb-4 leading-relaxed">
+              Give this device a recognizable name, then follow your browser prompt.
             </p>
 
             <form onSubmit={handleAddPasskey} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Passkey Label</label>
+                <label className="block text-xs font-bold text-slate-900 mb-1.5">
+                  Device name
+                </label>
                 <input
                   type="text"
                   value={newKeyName}
                   onChange={(e) => setNewKeyName(e.target.value)}
-                  placeholder="e.g. Work YubiKey 5C"
+                  placeholder="e.g. Office Laptop — Windows Hello"
                   required
-                  className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                  className="w-full nexus-input-neumorphic px-3.5 py-2.5 rounded-xl text-xs text-slate-950 placeholder-slate-500 font-medium"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2.5 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-300 bg-slate-800 cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-800 hover:bg-slate-100 border border-slate-300 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={actionLoading}
-                  className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-950 bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 flex items-center gap-1.5 cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5 cursor-pointer shadow-sm"
                 >
-                  {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
-                  <span>Enroll Device</span>
+                  {actionLoading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                  )}
+                  <span>Save passkey</span>
                 </button>
               </div>
             </form>

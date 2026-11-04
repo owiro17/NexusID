@@ -1,37 +1,100 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --scrollbar-thumb: rgba(56, 189, 248, 0.25);
-  --scrollbar-thumb-hover: rgba(56, 189, 248, 0.45);
-  --scrollbar-track: rgba(15, 23, 42, 0.4);
+  --background: #EEF2F6;
+  --foreground: #090D16;
+  --surface: #FFFFFF;
+  --navy-sidebar: #0B1B3F;
+  --primary-blue: #1D4ED8;
+  --secondary-amber: #D97706;
+  --harmonious-teal: #0F766E;
+  --scrollbar-thumb: rgba(30, 41, 59, 0.35);
+  --scrollbar-thumb-hover: rgba(30, 41, 59, 0.55);
+  --scrollbar-track: transparent;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-ibm-plex), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-ibm-plex), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-feature-settings: "tnum" on, "lnum" on;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   Evolved Soft UI / Neumorphism Card Elevation System (WCAG AA/AAA compliant)
+   ========================================================================== */
+.nexus-card-neumorphic {
+  background: #FFFFFF;
+  border-radius: 1.25rem;
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  box-shadow: 8px 8px 22px -3px rgba(148, 163, 184, 0.32),
+              -8px -8px 22px 0px rgba(255, 255, 255, 0.95),
+              0 1px 3px 0 rgba(15, 23, 42, 0.05);
+}
+
+.nexus-card-neumorphic-hover {
+  background: #FFFFFF;
+  border-radius: 1.25rem;
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  box-shadow: 6px 6px 18px -3px rgba(148, 163, 184, 0.28),
+              -6px -6px 18px 0px rgba(255, 255, 255, 0.95);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.nexus-card-neumorphic-hover:hover {
+  transform: translateY(-2px);
+  border-color: #CBD5E1;
+  box-shadow: 10px 10px 26px -3px rgba(148, 163, 184, 0.42),
+              -10px -10px 26px 0px rgba(255, 255, 255, 1);
+}
+
+.nexus-well-inset {
+  background: #F1F5F9;
+  border-radius: 0.875rem;
+  border: 1px solid #E2E8F0;
+  box-shadow: inset 3px 3px 6px rgba(148, 163, 184, 0.25),
+              inset -3px -3px 6px rgba(255, 255, 255, 0.9);
+}
+
+.nexus-btn-neumorphic {
+  box-shadow: 4px 4px 12px rgba(148, 163, 184, 0.35),
+              -4px -4px 12px rgba(255, 255, 255, 0.9);
+  transition: all 0.15s ease;
+}
+.nexus-btn-neumorphic:active {
+  box-shadow: inset 2px 2px 5px rgba(15, 23, 42, 0.15);
+}
+
+.nexus-input-neumorphic {
+  background: #FFFFFF;
+  border: 1.5px solid #CBD5E1;
+  box-shadow: inset 2px 2px 4px rgba(148, 163, 184, 0.18),
+              inset -2px -2px 4px rgba(255, 255, 255, 0.85);
+  color: #0F172A;
+  font-weight: 500;
+}
+.nexus-input-neumorphic:focus {
+  border-color: #2563EB;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18),
+              inset 2px 2px 4px rgba(148, 163, 184, 0.15);
 }
 
 /* Minimalist Custom Scrollbar Container */
 .nexus-minimal-scroller {
-  --scrollbar-thumb: rgba(56, 189, 248, 0.28);
-  --scrollbar-track: rgba(2, 6, 23, 0.35);
+  --scrollbar-thumb: rgba(100, 116, 139, 0.5);
+  --scrollbar-track: transparent;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
@@ -49,5 +112,16 @@ body {
 
   .nexus-minimal-scroller::-webkit-scrollbar-track {
     background: var(--scrollbar-track);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

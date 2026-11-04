@@ -5,77 +5,66 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { useTelemetry } from '@/hooks/useTelemetry';
-import { StepUpModal } from '@/components/auth/StepUpModal';
 import type { FinancialLedger } from '@/types/auth';
 import {
   Trophy,
   Sparkles,
   Keyboard,
-  DollarSign,
-  Send,
   CheckCircle2,
   AlertTriangle,
-  Cpu,
-  Fingerprint,
   ArrowRight,
   RefreshCw,
-  ShieldCheck,
-  Zap,
   Award,
-  Lock,
 } from 'lucide-react';
 
 interface ChallengeDefinition {
   id: string;
   tier: 'Bronze' | 'Silver' | 'Gold';
   title: string;
-  description: string;
+  subtitle: string;
   promptText: string;
   pointsRequired: number;
-  rewardUsd: number;
-  rlEpochsBoost: number;
+  rewardKes: number;
 }
 
 const DAILY_CHALLENGES: ChallengeDefinition[] = [
   {
     id: 'challenge_bronze_kyc',
     tier: 'Bronze',
-    title: 'Tier 1: Agency Liquidity Verification Phrase',
-    description:
-      'Calibrate your short-burst keystroke hold & flight cadence while earning a $50.00 Treasury Micro-Grant.',
-    promptText:
-      'authorize agency settlement vault 904 for immediate clearing',
+    title: 'Quick phrase',
+    subtitle: 'Type a short everyday payment confirmation sentence.',
+    promptText: 'authorize agency settlement vault 904 for immediate clearing',
     pointsRequired: 100,
-    rewardUsd: 50,
-    rlEpochsBoost: 3,
+    rewardKes: 50,
   },
   {
     id: 'challenge_silver_wire',
     tier: 'Silver',
-    title: 'Tier 2: High-Velocity IBAN & Swift Routing Drill',
-    description:
-      'Train the 12-D Deep Behavioral Autoencoder on alphanumeric account transitions to reduce False Rejections (FRR).',
-    promptText:
-      'verify swift routing KE88NXID0045219000 and release escrow tranche',
+    title: 'Account number practice',
+    subtitle: 'Practice typing an account reference with letters and numbers.',
+    promptText: 'verify swift routing KE88NXID0045219000 and release escrow tranche',
     pointsRequired: 220,
-    rewardUsd: 150,
-    rlEpochsBoost: 6,
+    rewardKes: 150,
   },
   {
     id: 'challenge_gold_zero_trust',
     tier: 'Gold',
-    title: 'Tier 3: Continuous Zero-Trust Operator Masterphrase',
-    description:
-      'Lock your deep neural manifold across extended digraphs and unlock the $500.00 Enterprise Liquidity Reward.',
-    promptText:
-      'continuous behavioral biometrics protect agency banking against session hijacking',
+    title: 'Long phrase',
+    subtitle: 'Complete a full security sentence to unlock the top daily reward.',
+    promptText: 'continuous behavioral biometrics protect agency banking against session hijacking',
     pointsRequired: 400,
-    rewardUsd: 500,
-    rlEpochsBoost: 10,
+    rewardKes: 500,
   },
 ];
 
-const INITIAL_CREDIT_BALANCE = 25000.0;
+const INITIAL_CREDIT_BALANCE = 10000.0;
+
+function formatKes(amount: number): string {
+  return `KSh ${amount.toLocaleString('en-KE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
 
 export default function DailyChallengesPage() {
   const router = useRouter();
@@ -83,7 +72,6 @@ export default function DailyChallengesPage() {
 
   const {
     currentRiskScore: liveRiskScore,
-    totalKeystrokes,
     operatorVerification,
     activeSessionId,
     rewardContinualModel,
@@ -91,31 +79,15 @@ export default function DailyChallengesPage() {
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<FinancialLedger[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
 
-  // Challenge Progress State
   const [activeChallengeId, setActiveChallengeId] = useState<string>(DAILY_CHALLENGES[0].id);
   const [typedInput, setTypedInput] = useState<string>('');
   const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
-  const [localTelemetryPoints, setLocalTelemetryPoints] = useState<number>(120);
+  const [localPoints, setLocalPoints] = useState<number>(120);
   const [isClaimingReward, setIsClaimingReward] = useState<boolean>(false);
-
-  // Instant P2P Account Transfer State
-  const [recipientAccount, setRecipientAccount] = useState<string>('');
-  const [transferAmount, setTransferAmount] = useState<string>('');
-  const [transferNote, setTransferNote] = useState<string>('');
-  const [isSendingTransfer, setIsSendingTransfer] = useState<boolean>(false);
   const [statusBanner, setStatusBanner] = useState<{
-    type: 'success' | 'error' | 'info' | 'warning';
+    type: 'success' | 'error';
     text: string;
-  } | null>(null);
-
-  // Step-Up Modal State
-  const [isStepUpOpen, setIsStepUpOpen] = useState<boolean>(false);
-  const [pendingP2P, setPendingP2P] = useState<{
-    account: string;
-    amount: number;
-    note: string;
   } | null>(null);
 
   const activeChallenge =
@@ -140,10 +112,17 @@ export default function DailyChallengesPage() {
 
       if (Array.isArray(ledgerData)) {
         setTransactions(ledgerData as FinancialLedger[]);
-        // Detect already claimed challenges today
         const claimedIds: string[] = [];
         for (const ch of DAILY_CHALLENGES) {
-          if (ledgerData.some((tx) => tx.target_account?.includes(ch.title))) {
+          if (
+            ledgerData.some(
+              (tx) =>
+                tx.target_account?.includes(ch.title) ||
+                tx.target_account?.includes(`Tier ${ch.tier}`) ||
+                tx.target_account?.includes(`+KSh ${ch.rewardKes}`) ||
+                tx.target_account?.includes(`+$${ch.rewardKes}`)
+            )
+          ) {
             claimedIds.push(ch.id);
           }
         }
@@ -151,8 +130,6 @@ export default function DailyChallengesPage() {
       }
     } catch {
       // ignore
-    } finally {
-      setIsLoading(false);
     }
   }, [supabase, router]);
 
@@ -160,13 +137,11 @@ export default function DailyChallengesPage() {
     loadLedger();
   }, [loadLedger]);
 
-  // Sync telemetry points from backend RL state
   const serverPoints = operatorVerification?.continualLearning?.telemetryPoints ?? 0;
-  const effectivePoints = Math.max(localTelemetryPoints, serverPoints);
+  const effectivePoints = Math.max(localPoints, serverPoints);
   const maxGoalPoints = 500;
   const progressBarPct = Math.min(100, Math.round((effectivePoints / maxGoalPoints) * 100));
 
-  // Calculate live balance (negative transaction_amount in financial_ledgers = inflow reward credit!)
   const totalOutflow = transactions
     .filter((tx) => tx.status !== 'Failed' && Number(tx.transaction_amount) > 0)
     .reduce((sum, tx) => sum + Number(tx.transaction_amount), 0);
@@ -177,7 +152,7 @@ export default function DailyChallengesPage() {
 
   const availableBalance = Math.max(0, INITIAL_CREDIT_BALANCE - totalOutflow + totalRewardsInflow);
 
-  // Typing Accuracy & Match Progress for Active Challenge
+  // Character-by-character matching
   const targetClean = activeChallenge.promptText.trim().toLowerCase();
   const typedClean = typedInput.trim().toLowerCase();
 
@@ -196,12 +171,10 @@ export default function DailyChallengesPage() {
   const isPromptMatched = typingMatchPct >= 95 || typedClean === targetClean;
 
   const handleTypingChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setTypedInput(val);
-    setLocalTelemetryPoints((prev) => prev + 3);
+    setTypedInput(e.target.value);
+    setLocalPoints((prev) => prev + 3);
   };
 
-  // Claim Challenge Reward -> Credits money to Supabase `financial_ledgers` + RL Autoencoder Training!
   const handleCompleteChallenge = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isPromptMatched || !currentUserId) return;
@@ -210,23 +183,20 @@ export default function DailyChallengesPage() {
     setStatusBanner(null);
 
     try {
-      // 1. Trigger Online Deep Autoencoder + Contextual Bandit RL positive reinforcement
       await rewardContinualModel(activeChallenge.pointsRequired);
-      setLocalTelemetryPoints((prev) => prev + activeChallenge.pointsRequired);
+      setLocalPoints((prev) => prev + activeChallenge.pointsRequired);
 
-      // 2. Credit Money Reward into `public.financial_ledgers` (negative amount = Credit Inflow in Dashboard calculation)
       const { error } = await supabase.from('financial_ledgers').insert([
         {
           user_id: currentUserId,
-          target_account: `🏆 Reward Credit: ${activeChallenge.title} (+$${activeChallenge.rewardUsd})`,
-          transaction_amount: -activeChallenge.rewardUsd,
+          target_account: `Daily Reward: ${activeChallenge.title} (+KSh ${activeChallenge.rewardKes})`,
+          transaction_amount: -activeChallenge.rewardKes,
           status: 'completed',
         },
       ]);
 
       if (error) throw error;
 
-      // 3. Log Audit Event with Session ID
       await fetch('/api/auth/audit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -236,8 +206,7 @@ export default function DailyChallengesPage() {
           recordedRiskScore: liveRiskScore,
           metadata: {
             challenge_id: activeChallenge.id,
-            reward_usd: activeChallenge.rewardUsd,
-            rl_epochs_boost: activeChallenge.rlEpochsBoost,
+            reward_kes: activeChallenge.rewardKes,
           },
         }),
       });
@@ -250,512 +219,261 @@ export default function DailyChallengesPage() {
 
       setStatusBanner({
         type: 'success',
-        text: `Challenge Completed! +$${activeChallenge.rewardUsd.toFixed(2)} credited to your balance & Autoencoder trained (+${activeChallenge.rlEpochsBoost} RL epochs).`,
+        text: `Well done! ${formatKes(activeChallenge.rewardKes)} has been added to your balance.`,
       });
     } catch (err: any) {
       setStatusBanner({
         type: 'error',
-        text: err.message || 'Could not credit challenge reward.',
+        text: err.message || 'Could not claim reward right now. Please try again.',
       });
     } finally {
       setIsClaimingReward(false);
     }
   };
 
-  // P2P Transfer to Another Account Number
-  const executeP2PTransfer = async (account: string, amount: number, note: string) => {
-    if (!currentUserId) return;
-    setIsSendingTransfer(true);
-
-    try {
-      const label = note
-        ? `P2P Account ${account} (${note})`
-        : `P2P Account Transfer -> ${account}`;
-
-      const { error } = await supabase.from('financial_ledgers').insert([
-        {
-          user_id: currentUserId,
-          target_account: label,
-          transaction_amount: amount,
-          status: 'completed',
-        },
-      ]);
-
-      if (error) throw error;
-
-      await loadLedger();
-      setRecipientAccount('');
-      setTransferAmount('');
-      setTransferNote('');
-
-      setStatusBanner({
-        type: 'success',
-        text: `Instant P2P Transfer of $${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} sent to Account #${account}!`,
-      });
-    } catch (err: any) {
-      setStatusBanner({
-        type: 'error',
-        text: err.message || 'Transfer failed.',
-      });
-    } finally {
-      setIsSendingTransfer(false);
-      setPendingP2P(null);
-    }
-  };
-
-  const handleInitiateP2P = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setStatusBanner(null);
-
-    const amt = parseFloat(transferAmount);
-    if (!recipientAccount.trim()) {
-      setStatusBanner({ type: 'error', text: 'Please enter a recipient Account Number.' });
-      return;
-    }
-    if (isNaN(amt) || amt <= 0 || amt > availableBalance) {
-      setStatusBanner({
-        type: 'error',
-        text: `Enter a valid amount up to $${availableBalance.toLocaleString()}.`,
-      });
-      return;
-    }
-
-    if (liveRiskScore > 70 || amt >= 5000) {
-      setPendingP2P({
-        account: recipientAccount.trim(),
-        amount: amt,
-        note: transferNote.trim(),
-      });
-      setIsStepUpOpen(true);
-      return;
-    }
-
-    await executeP2PTransfer(recipientAccount.trim(), amt, transferNote.trim());
-  };
-
   return (
-    <div className="space-y-8 pb-12">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
-        <div>
-          <div className="flex items-center gap-2 text-emerald-400 text-xs font-mono mb-1">
-            <Trophy className="w-3.5 h-3.5" />
-            <span>CONTINUAL RL BIOMETRIC CALIBRATION • GAMIFIED REWARDS HUB</span>
+    <div className="max-w-3xl mx-auto space-y-6">
+      {/* Top Progress & Balance Summary Card */}
+      <section className="nexus-card-neumorphic p-6 sm:p-8 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-amber-100 border border-amber-300 text-amber-900 flex items-center justify-center shrink-0 shadow-2xs">
+              <Trophy className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-950">
+                Earn daily KSh rewards while we learn your style
+              </h2>
+              <p className="text-xs text-slate-700 font-medium mt-0.5">
+                Each short typing exercise helps NexusID recognize you more smoothly and credits real rewards to your account.
+              </p>
+            </div>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
-            Daily Telemetry Challenges & P2P Rewards
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Complete typing challenges to earn real liquidity rewards while training your personal Deep Behavioral Autoencoder to eliminate false positives.
-          </p>
+
+          <Link
+            href="/dashboard"
+            className="nexus-btn-neumorphic px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-900 text-xs font-bold flex items-center gap-1.5 self-start sm:self-center shrink-0 transition-colors cursor-pointer"
+          >
+            <span>Send money</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
         </div>
 
-        <Link
-          href="/dashboard"
-          className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 border border-slate-800 text-cyan-400 flex items-center gap-1.5 self-start sm:self-auto"
-        >
-          <span>Back to Overview</span>
-          <ArrowRight className="w-3.5 h-3.5" />
-        </Link>
-      </div>
-
-      {/* Telemetry Points Bar & RL Model Health Strip */}
-      <div className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900/95 to-slate-950 border border-slate-800 p-6 shadow-xl space-y-5">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800/80">
-            <span className="text-[11px] font-mono text-slate-400 uppercase block">
-              Available Balance (incl. Rewards)
-            </span>
-            <span className="text-2xl font-extrabold font-mono text-white mt-1 block">
-              ${availableBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-            </span>
-            <span className="text-[11px] font-mono text-emerald-400 mt-1 block">
-              +${totalRewardsInflow.toFixed(2)} Earned from Challenges
+        {/* Summary Metrics Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+          <div className="nexus-well-inset p-4">
+            <span className="text-xs text-slate-700 font-bold block">Available balance</span>
+            <span className="text-xl font-extrabold text-slate-950 tabular-nums mt-1 block">
+              {formatKes(availableBalance)}
             </span>
           </div>
 
-          <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800/80">
-            <span className="text-[11px] font-mono text-slate-400 uppercase block">
-              Telemetry Points Progress
-            </span>
-            <span className="text-2xl font-extrabold font-mono text-cyan-400 mt-1 block">
-              {effectivePoints} <span className="text-sm text-slate-500">/ {maxGoalPoints} PTS</span>
-            </span>
-            <span className="text-[11px] font-mono text-slate-400 mt-1 block">
-              {totalKeystrokes} Keystrokes Captured
+          <div className="nexus-well-inset p-4 bg-teal-50/80 border-teal-200">
+            <span className="text-xs text-teal-950 font-bold block">Total rewards earned</span>
+            <span className="text-xl font-extrabold text-teal-800 tabular-nums mt-1 block">
+              +{formatKes(totalRewardsInflow)}
             </span>
           </div>
 
-          <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800/80">
-            <span className="text-[11px] font-mono text-slate-400 uppercase block">
-              Deep Autoencoder RL Epochs
-            </span>
-            <span className="text-2xl font-extrabold font-mono text-emerald-400 mt-1 block">
-              {operatorVerification?.continualLearning?.epochsTrained ?? 6} Epochs
-            </span>
-            <span className="text-[11px] font-mono text-slate-400 mt-1 block">
-              Recon Error: {(operatorVerification?.reconstructionError ?? 0.14).toFixed(3)}
-            </span>
-          </div>
-
-          <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800/80">
-            <span className="text-[11px] font-mono text-slate-400 uppercase block">
-              FRR Reduction Multiplier
-            </span>
-            <span className="text-2xl font-extrabold font-mono text-amber-400 mt-1 block">
-              {(operatorVerification?.continualLearning?.adaptiveMultiplier ?? 1.0).toFixed(2)}x
-            </span>
-            <span className="text-[11px] font-mono text-emerald-400 mt-1 block">
-              Synced to Supabase Cloud
+          <div className="nexus-well-inset p-4 bg-amber-50/80 border-amber-200">
+            <span className="text-xs text-amber-950 font-bold block">Completed today</span>
+            <span className="text-xl font-extrabold text-amber-800 tabular-nums mt-1 block">
+              {completedChallenges.length} of {DAILY_CHALLENGES.length} rewards
             </span>
           </div>
         </div>
 
-        {/* Master Telemetry Points Bar */}
+        {/* Progress Bar */}
         <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs font-mono">
-            <span className="text-slate-300 flex items-center gap-1.5">
-              <Zap className="w-4 h-4 text-amber-400" />
-              <span>Daily Telemetry Points Bar (Unlocks Tiered Money Rewards & Neural Precision)</span>
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-bold text-slate-800">
+              Daily reward progress
             </span>
-            <span className="text-cyan-400 font-bold">
-              {effectivePoints} / {maxGoalPoints} Telemetry Points ({progressBarPct}%)
+            <span className="font-extrabold text-blue-700 tabular-nums">
+              {progressBarPct}% complete
             </span>
           </div>
-          <div className="w-full h-3.5 bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800 relative">
+          <div className="nexus-well-inset w-full h-3.5 p-0.5 rounded-full overflow-hidden">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-cyan-500 via-emerald-400 to-amber-400 transition-all duration-300"
-              style={{ width: `${Math.max(5, progressBarPct)}%` }}
+              className="h-full rounded-full bg-gradient-to-r from-blue-600 via-teal-600 to-amber-500 transition-all duration-300"
+              style={{ width: `${Math.max(6, progressBarPct)}%` }}
             />
           </div>
-          <div className="flex justify-between text-[10px] font-mono text-slate-500">
-            <span>0 PTS (Start)</span>
-            <span className={effectivePoints >= 100 ? 'text-emerald-400 font-bold' : ''}>
-              100 PTS ($50 Bronze)
+          <div className="flex justify-between text-[11px] text-slate-700 font-semibold tabular-nums">
+            <span>Start</span>
+            <span className={effectivePoints >= 100 ? 'text-teal-900 font-bold' : ''}>
+              Bronze • KSh 50
             </span>
-            <span className={effectivePoints >= 220 ? 'text-cyan-400 font-bold' : ''}>
-              220 PTS ($150 Silver)
+            <span className={effectivePoints >= 220 ? 'text-blue-900 font-bold' : ''}>
+              Silver • KSh 150
             </span>
-            <span className={effectivePoints >= 400 ? 'text-amber-400 font-bold' : ''}>
-              400+ PTS ($500 Gold)
+            <span className={effectivePoints >= 400 ? 'text-amber-900 font-bold' : ''}>
+              Gold • KSh 500
             </span>
           </div>
         </div>
-      </div>
+      </section>
 
       {statusBanner && (
         <div
-          className={`p-4 rounded-xl border text-xs flex items-center gap-3 ${
+          className={`nexus-card-neumorphic p-4 text-xs font-semibold flex items-center gap-3 ${
             statusBanner.type === 'success'
-              ? 'bg-emerald-950/50 border-emerald-700 text-emerald-200'
-              : 'bg-red-950/50 border-red-700 text-red-200'
+              ? 'bg-teal-50 border-teal-300 text-teal-950'
+              : 'bg-red-50 border-red-300 text-red-950'
           }`}
         >
           {statusBanner.type === 'success' ? (
-            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            <CheckCircle2 className="w-4 h-4 text-teal-700 shrink-0" />
           ) : (
-            <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+            <AlertTriangle className="w-4 h-4 text-red-700 shrink-0" />
           )}
-          <span className="font-medium">{statusBanner.text}</span>
+          <span>{statusBanner.text}</span>
         </div>
       )}
 
-      {/* Main Two-Column Grid: Left = Interactive Typing Challenges | Right = Instant Account Transfer */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left: 3 Tiered Challenges + Interactive Typing Box (7 cols) */}
-        <div className="lg:col-span-7 space-y-5">
-          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-6 shadow-xl space-y-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  <Award className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-base font-semibold text-white">
-                    Select a Reward Tier & Type Phrase
-                  </h2>
-                  <p className="text-xs text-slate-400">
-                    Each keystroke feeds your Online Autoencoder and adds +3 Telemetry Points
-                  </p>
-                </div>
-              </div>
-            </div>
+      {/* 3 Simple Reward Tier Cards + Clean Typing Box */}
+      <section className="nexus-card-neumorphic p-6 sm:p-8 space-y-6">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 rounded-xl bg-blue-50 text-blue-700 border border-blue-200">
+            <Award className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-slate-950">Choose a reward challenge</h3>
+            <p className="text-xs text-slate-700 font-medium">
+              Select a card below and type the phrase at your natural pace
+            </p>
+          </div>
+        </div>
 
-            {/* Challenge Tier Selector Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {DAILY_CHALLENGES.map((ch) => {
-                const isSelected = ch.id === activeChallengeId;
-                const isDone = completedChallenges.includes(ch.id);
-                return (
-                  <button
-                    key={ch.id}
-                    type="button"
-                    onClick={() => {
-                      setActiveChallengeId(ch.id);
-                      setTypedInput('');
-                    }}
-                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
-                      isSelected
-                        ? 'bg-cyan-500/10 border-cyan-500/50 ring-1 ring-cyan-500/30'
-                        : 'bg-slate-950/70 border-slate-800 hover:border-slate-700'
+        {/* 3 Tier Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+          {DAILY_CHALLENGES.map((ch) => {
+            const isSelected = ch.id === activeChallengeId;
+            const isDone = completedChallenges.includes(ch.id);
+            return (
+              <button
+                key={ch.id}
+                type="button"
+                onClick={() => {
+                  setActiveChallengeId(ch.id);
+                  setTypedInput('');
+                }}
+                className={`nexus-card-neumorphic-hover p-4 text-left cursor-pointer ${
+                  isSelected
+                    ? 'border-blue-600 ring-2 ring-blue-600/25 bg-blue-50/40'
+                    : 'hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span
+                    className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                      ch.tier === 'Gold'
+                        ? 'bg-amber-100 text-amber-950 border border-amber-300'
+                        : ch.tier === 'Silver'
+                        ? 'bg-blue-100 text-blue-950 border border-blue-300'
+                        : 'bg-teal-100 text-teal-950 border border-teal-300'
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span
-                        className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
-                          ch.tier === 'Gold'
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                            : ch.tier === 'Silver'
-                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                        }`}
-                      >
-                        {ch.tier} Tier
-                      </span>
-                      <span className="text-sm font-extrabold font-mono text-emerald-400">
-                        +${ch.rewardUsd}
-                      </span>
-                    </div>
-                    <p className="text-xs font-semibold text-white line-clamp-1">{ch.title}</p>
-                    <div className="mt-2 flex items-center justify-between text-[10px] font-mono text-slate-400">
-                      <span>+{ch.pointsRequired} PTS</span>
-                      {isDone && (
-                        <span className="text-emerald-400 font-bold flex items-center gap-0.5">
-                          ✓ Claimed
-                        </span>
-                      )}
-                    </div>
-                  </button>
+                    {ch.tier}
+                  </span>
+                  <span className="text-sm font-extrabold text-slate-950 tabular-nums">
+                    +KSh {ch.rewardKes}
+                  </span>
+                </div>
+                <p className="text-sm font-bold text-slate-950">{ch.title}</p>
+                <p className="text-xs text-slate-700 font-medium mt-1 line-clamp-2">{ch.subtitle}</p>
+                {isDone && (
+                  <div className="mt-2.5 inline-flex items-center gap-1 text-[11px] font-bold text-teal-800">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-teal-700" />
+                    <span>Claimed</span>
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Typing Box with Live Character Highlighting */}
+        <form onSubmit={handleCompleteChallenge} className="space-y-4 pt-2">
+          <div className="nexus-well-inset p-5 space-y-2.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-slate-900">
+                {activeChallenge.tier} • {activeChallenge.title}
+              </span>
+              <span className="font-bold text-amber-950 bg-amber-100 border border-amber-300 px-3 py-0.5 rounded-full tabular-nums">
+                Reward: {formatKes(activeChallenge.rewardKes)}
+              </span>
+            </div>
+
+            {/* Live Character Highlighting Display */}
+            <div
+              className="p-4 rounded-xl bg-white border border-slate-300 text-base font-semibold leading-relaxed select-none tracking-normal shadow-2xs"
+              aria-label="Target phrase to type"
+            >
+              {activeChallenge.promptText.split('').map((char, idx) => {
+                const typedChar = typedInput[idx];
+                let charClass = 'text-slate-400';
+                if (typedChar !== undefined) {
+                  if (typedChar.toLowerCase() === char.toLowerCase()) {
+                    charClass = 'text-teal-900 bg-teal-100/90 font-bold';
+                  } else {
+                    charClass = 'text-red-900 bg-red-100 underline font-bold';
+                  }
+                }
+                return (
+                  <span key={idx} className={`${charClass} rounded-xs px-0.5 transition-colors`}>
+                    {char}
+                  </span>
                 );
               })}
             </div>
-
-            {/* Active Challenge Typing Arena */}
-            <form onSubmit={handleCompleteChallenge} className="space-y-4 pt-2">
-              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-cyan-400">{activeChallenge.title}</span>
-                  <span className="font-mono text-emerald-400 font-bold">
-                    Reward: ${activeChallenge.rewardUsd.toFixed(2)} USD
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400">{activeChallenge.description}</p>
-
-                <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 font-mono text-sm text-emerald-300 select-none tracking-wide">
-                  {activeChallenge.promptText}
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between text-xs mb-1.5">
-                  <label className="font-medium text-slate-300 flex items-center gap-1.5">
-                    <Keyboard className="w-4 h-4 text-cyan-400" />
-                    <span>Type the phrase above naturally to calibrate your neural profile:</span>
-                  </label>
-                  <span className="font-mono text-cyan-400">{typingMatchPct}% Match</span>
-                </div>
-                <input
-                  type="text"
-                  value={typedInput}
-                  onChange={handleTypingChange}
-                  placeholder={activeChallenge.promptText}
-                  className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-                />
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTypedInput(activeChallenge.promptText);
-                    setLocalTelemetryPoints((prev) => prev + 45);
-                  }}
-                  className="text-xs font-mono text-slate-400 hover:text-cyan-400 underline cursor-pointer"
-                >
-                  Quick-Fill Phrase (Demo Assist)
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={!isPromptMatched || isClaimingReward}
-                  className="px-5 py-2.5 rounded-xl font-bold text-xs bg-gradient-to-r from-emerald-400 to-cyan-500 hover:from-emerald-300 hover:to-cyan-400 text-slate-950 disabled:opacity-40 transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/10"
-                >
-                  {isClaimingReward ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Crediting Reward & Training RL...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      <span>
-                        Claim +${activeChallenge.rewardUsd} Reward & Train Model
-                      </span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
           </div>
-        </div>
 
-        {/* Right: Transfer Rewards to Another Person by Account Number (5 cols) */}
-        <div className="lg:col-span-5">
-          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-6 shadow-xl h-full flex flex-col justify-between space-y-6">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                    <Send className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h2 className="text-base font-semibold text-white">
-                      Transfer to Account Number
-                    </h2>
-                    <p className="text-xs text-slate-400">
-                      Send earned rewards or liquidity to any peer account
-                    </p>
-                  </div>
-                </div>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
-                  P2P Instant
-                </span>
-              </div>
-
-              <form onSubmit={handleInitiateP2P} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Recipient Account Number
-                  </label>
-                  <input
-                    type="text"
-                    value={recipientAccount}
-                    onChange={(e) => setRecipientAccount(e.target.value)}
-                    placeholder="e.g. ACC-KE-01948201"
-                    required
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
-                  />
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {[
-                      'ACC-KE-01948201 (Alice W.)',
-                      'ACC-KE-08831044 (Brian O.)',
-                      'SME-WAKALA-7740 (Agency Float)',
-                    ].map((preset) => (
-                      <button
-                        key={preset}
-                        type="button"
-                        onClick={() => setRecipientAccount(preset)}
-                        className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-white cursor-pointer"
-                      >
-                        {preset}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-xs mb-1.5">
-                    <label className="font-medium text-slate-300">Amount ($ USD)</label>
-                    <span className="font-mono text-slate-400">
-                      Available: ${availableBalance.toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="relative">
-                    <DollarSign className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="number"
-                      min="1"
-                      step="any"
-                      value={transferAmount}
-                      onChange={(e) => setTransferAmount(e.target.value)}
-                      placeholder="50.00"
-                      required
-                      className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
-                    />
-                  </div>
-                  <div className="grid grid-cols-4 gap-1.5 mt-2">
-                    {[50, 150, 500, 1000].map((amt) => (
-                      <button
-                        key={amt}
-                        type="button"
-                        onClick={() => setTransferAmount(String(amt))}
-                        className="py-1 rounded border border-slate-800 bg-slate-950 hover:bg-slate-800 text-xs font-mono text-cyan-300 cursor-pointer"
-                      >
-                        ${amt}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Payment Reference / Note
-                  </label>
-                  <input
-                    type="text"
-                    value={transferNote}
-                    onChange={(e) => setTransferNote(e.target.value)}
-                    placeholder="e.g. Agency Commission Payout"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isSendingTransfer}
-                  className="w-full py-3 px-4 rounded-xl font-bold text-xs bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 shadow-lg shadow-cyan-500/20 flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  {isSendingTransfer ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Settling on Supabase Ledger...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4" />
-                      <span>Send Instant Account Transfer</span>
-                    </>
-                  )}
-                </button>
-              </form>
+          <div>
+            <div className="flex justify-between text-xs mb-1.5">
+              <label
+                htmlFor="challenge-typing-input"
+                className="font-bold text-slate-800 flex items-center gap-1.5"
+              >
+                <Keyboard className="w-4 h-4 text-blue-700" />
+                <span>Type the sentence above at your normal speed</span>
+              </label>
+              <span className="font-extrabold text-blue-700 tabular-nums">
+                {typingMatchPct}% matched
+              </span>
             </div>
-
-            <div className="p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 text-[11px] font-mono text-slate-400 space-y-1">
-              <div className="flex items-center justify-between">
-                <span>Session ID:</span>
-                <span className="text-cyan-400">{activeSessionId}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>Bound Client IP:</span>
-                <span className="text-emerald-400">
-                  {operatorVerification?.sessionSecurity?.boundIp || '127.0.0.1'}
-                </span>
-              </div>
-            </div>
+            <input
+              id="challenge-typing-input"
+              type="text"
+              value={typedInput}
+              onChange={handleTypingChange}
+              placeholder={activeChallenge.promptText}
+              autoComplete="off"
+              className="nexus-input-neumorphic w-full px-4 py-3 rounded-xl text-sm"
+            />
           </div>
-        </div>
-      </div>
 
-      <StepUpModal
-        isOpen={isStepUpOpen}
-        currentRiskScore={liveRiskScore}
-        actionDescription={
-          pendingP2P
-            ? `Authorize P2P Transfer of $${pendingP2P.amount.toLocaleString()} to Account ${pendingP2P.account}`
-            : 'Verify Identity'
-        }
-        onVerified={async () => {
-          setIsStepUpOpen(false);
-          await rewardContinualModel(75);
-          if (pendingP2P) {
-            await executeP2PTransfer(pendingP2P.account, pendingP2P.amount, pendingP2P.note);
-          }
-        }}
-        onCancel={() => {
-          setIsStepUpOpen(false);
-          setPendingP2P(null);
-        }}
-      />
+          <div className="flex items-center justify-end pt-1">
+            <button
+              type="submit"
+              disabled={!isPromptMatched || isClaimingReward}
+              className="nexus-btn-neumorphic w-full sm:w-auto px-6 py-3 rounded-xl font-bold text-sm bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40 transition-colors duration-150 flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {isClaimingReward ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Crediting reward...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 text-amber-300" />
+                  <span>Claim +{formatKes(activeChallenge.rewardKes)} reward</span>
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </section>
     </div>
   );
 }

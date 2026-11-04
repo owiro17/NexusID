@@ -2,7 +2,7 @@ import React from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { PasskeyManager } from '@/components/auth/PasskeyManager';
-import { ShieldCheck, Activity, Lock, Cpu } from 'lucide-react';
+import { ShieldCheck, KeyRound, UserCheck } from 'lucide-react';
 
 export default async function SecurityDashboardPage() {
   const supabase = await createClient();
@@ -21,53 +21,51 @@ export default async function SecurityDashboardPage() {
     .maybeSingle();
 
   const riskScore = profile?.behavioral_risk_score ?? 0;
+  const trustScore = Math.max(0, Math.min(100, Math.round(100 - riskScore)));
 
   return (
-    <div className="space-y-8">
-      <div>
-        <div className="flex items-center gap-2 text-cyan-500 text-xs font-mono mb-2">
-          <Lock className="w-4 h-4" />
-          <span>NEXUS-ID ADAPTIVE ACCESS CONTROL</span>
-        </div>
-        <h1 className="text-3xl font-bold tracking-tight text-white">Security & Passkeys</h1>
-        <p className="text-sm text-slate-400 mt-1">
-          Review cryptographic authentication telemetry and manage registered hardware credentials.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="p-5 rounded-xl bg-slate-900 text-white border border-slate-800 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-            <span>Zero-Trust Risk</span>
-            <Activity className="w-4 h-4 text-cyan-400" />
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+        <div className="p-5 rounded-2xl nexus-card-neumorphic">
+          <div className="flex items-center justify-between text-xs text-slate-700 font-semibold mb-2">
+            <span>Trust score</span>
+            <div className="w-8 h-8 rounded-xl bg-teal-50 border border-teal-200/80 flex items-center justify-center text-teal-700">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
           </div>
-          <div className="text-2xl font-bold font-mono text-white">
-            {riskScore} <span className="text-xs text-slate-500 font-sans">/ 100</span>
+          <div className="text-3xl font-bold text-slate-950 tabular-nums">
+            {trustScore} <span className="text-xs font-semibold text-slate-600">/ 100</span>
           </div>
-          <div className="mt-2 text-[11px] text-emerald-400 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-            {riskScore <= 50 ? 'Baseline Nominal Trust' : 'Step-Up Required'}
+          <div className="mt-3 text-xs text-teal-800 flex items-center gap-2 font-bold">
+            <span className="w-2 h-2 rounded-full bg-teal-600 inline-block" />
+            {trustScore >= 50 ? 'Protected' : 'Step-up verification active'}
           </div>
         </div>
 
-        <div className="p-5 rounded-xl bg-slate-900 text-white border border-slate-800 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-            <span>Auth Architecture</span>
-            <Cpu className="w-4 h-4 text-emerald-400" />
+        <div className="p-5 rounded-2xl nexus-card-neumorphic">
+          <div className="flex items-center justify-between text-xs text-slate-700 font-semibold mb-2">
+            <span>Sign-in protection</span>
+            <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-200/80 flex items-center justify-center text-blue-700">
+              <KeyRound className="w-4 h-4" />
+            </div>
           </div>
-          <div className="text-lg font-semibold text-white">FIDO2 / WebAuthn</div>
-          <div className="mt-2 text-[11px] text-slate-400">Passkey-First + Magic Link Recovery</div>
+          <div className="text-lg font-bold text-slate-950">Biometric Passkeys</div>
+          <div className="mt-2 text-xs text-slate-800 font-medium leading-relaxed">
+            Face ID, Touch ID, Windows Hello & email backup
+          </div>
         </div>
 
-        <div className="p-5 rounded-xl bg-slate-900 text-white border border-slate-800 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-            <span>Account Type</span>
-            <ShieldCheck className="w-4 h-4 text-cyan-400" />
+        <div className="p-5 rounded-2xl nexus-card-neumorphic">
+          <div className="flex items-center justify-between text-xs text-slate-700 font-semibold mb-2">
+            <span>Signed-in account</span>
+            <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-200/80 flex items-center justify-center text-blue-700">
+              <UserCheck className="w-4 h-4" />
+            </div>
           </div>
-          <div className="text-lg font-semibold text-white capitalize">
-            {profile?.account_type || profile?.role || 'Standard'}
+          <div className="text-lg font-bold text-slate-950 capitalize">
+            {profile?.account_type || 'Business Account'}
           </div>
-          <div className="mt-2 text-[11px] text-slate-400 truncate">{user.email}</div>
+          <div className="mt-2 text-xs text-slate-800 font-medium truncate">{user.email}</div>
         </div>
       </div>
 

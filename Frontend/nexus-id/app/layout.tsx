@@ -1,29 +1,25 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const ibmPlexSans = IBM_Plex_Sans({
+  variable: "--font-ibm-plex",
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
-  title: "NexusID",
-  description: "NexusID is a next-generation Zero Trust identity platform. Instead of relying purely on point-in-time passwords, NexusID utilizes FIDO2/Passkeys for initial authentication and Continuous Behavioral Biometrics (Mouse Kinematics & Keystroke Dynamics) to silently verify users in the background.",
+  title: "NexusID — Banking that knows it's you",
+  description:
+    "Modern SME & agency banking protected silently by passkeys and continuous behavioral trust.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="en" className={`${ibmPlexSans.variable} h-full antialiased`}>
+      <body className="min-h-full flex flex-col bg-[#EEF2F6] text-slate-950 font-sans">
+        {children}
+      </body>
     </html>
   );
 }

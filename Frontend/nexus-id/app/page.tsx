@@ -1,128 +1,125 @@
 import Link from 'next/link';
 import {
   ShieldCheck,
-  KeyRound,
-  Activity,
-  Database,
   ArrowRight,
   Fingerprint,
-  Cpu,
+  Sparkles,
   Lock,
   ChevronRight,
-  Zap,
 } from 'lucide-react';
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-cyan-500 selection:text-black">
-      {/* Background Cyber Grid */}
-      <div className="fixed inset-0 pointer-events-none opacity-20 bg-[radial-gradient(#06b6d4_1px,transparent_1px)] [background-size:24px_24px]" />
-
+    <div className="min-h-screen bg-[#EEF2F6] text-slate-950 font-sans">
       {/* Navigation */}
-      <header className="relative z-10 w-full border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-4">
-          <div className="flex items-center space-x-2.5">
-            <div className="w-9 h-9 bg-gradient-to-tr from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/20">
-              <ShieldCheck className="w-5 h-5 text-slate-950" />
+      <header className="w-full border-b border-slate-200/80 bg-[#EEF2F6]/90 backdrop-blur-md sticky top-0 z-20">
+        <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm">
+              <ShieldCheck className="w-5 h-5 text-white" />
             </div>
-            <span className="text-xl font-bold tracking-tight text-white font-mono">
-              Nexus<span className="text-cyan-400">ID</span>
-            </span>
+            <div>
+              <span className="text-lg font-bold tracking-tight text-slate-950 block leading-none">
+                NexusID
+              </span>
+              <span className="text-[11px] text-slate-700 font-medium block mt-0.5">
+                Banking that knows it&apos;s you
+              </span>
+            </div>
           </div>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center gap-3">
             <Link
               href="/login"
-              className="text-xs font-semibold text-slate-300 hover:text-white px-3.5 py-2 rounded-lg hover:bg-slate-900 transition-colors"
+              className="text-xs font-bold text-slate-800 hover:text-slate-950 px-3.5 py-2 rounded-xl hover:bg-white/80 transition-colors"
             >
-              Sign In with Passkey
+              Sign in
             </Link>
             <Link
               href="/auth/signup"
-              className="text-xs font-semibold bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 px-4 py-2 rounded-xl transition-all shadow-md shadow-cyan-500/20 font-bold"
+              className="nexus-btn-neumorphic text-xs font-bold text-blue-700 px-4.5 py-2.5 rounded-xl cursor-pointer"
             >
-              Start Live Demo
+              Open account
             </Link>
           </div>
         </div>
       </header>
 
       {/* Hero Section */}
-      <main className="relative z-10 max-w-6xl mx-auto px-6 pt-20 pb-24 text-center">
-        <div className="inline-flex items-center gap-2 mb-6 px-3.5 py-1.5 rounded-full bg-cyan-950/60 border border-cyan-800/60 text-cyan-400 text-xs font-mono tracking-wide uppercase">
-          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-          <span>FIDO2 Passkeys • Continuous Behavioral Biometrics • PostgreSQL RLS</span>
+      <main className="max-w-5xl mx-auto px-6 pt-16 sm:pt-24 pb-24 text-center">
+        <div className="inline-flex items-center gap-2 mb-6 px-4 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-teal-900 text-xs font-bold">
+          <span className="w-2 h-2 rounded-full bg-teal-600" />
+          <span>Built for Kenyan SMEs & Agency Banking • Ksh Instant Transfers</span>
         </div>
 
-        <h1 className="text-4xl sm:text-6xl md:text-7xl font-extrabold text-white tracking-tight leading-tight mb-6">
-          Zero Trust Adaptive Identity. <br className="hidden md:block" />
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-400">
-            Invisible to Legitimate Users.
-          </span>
+        <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-slate-950 tracking-tight leading-tight mb-6">
+          Banking that knows <br className="hidden sm:block" />
+          <span className="text-blue-700">it&apos;s really you.</span>
         </h1>
 
-        <p className="text-base sm:text-lg text-slate-400 mb-10 max-w-2xl mx-auto leading-relaxed">
-          NexusID secures mission-critical financial applications by replacing fragile passwords with discoverable WebAuthn
-          passkeys and continuous behavioral biometrics. Anomaly detection gates database transactions in real-time.
+        <p className="text-base sm:text-lg text-slate-800 font-medium mb-10 max-w-2xl mx-auto leading-relaxed">
+          Sign in with a single touch and send money in Kenya Shillings without constant security interruptions. NexusID quietly recognizes your natural typing rhythm to keep your business account safe, even if you step away from your desk.
         </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link
             href="/auth/signup"
-            className="w-full sm:w-auto px-7 py-3.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 rounded-xl font-bold text-sm transition-all shadow-xl shadow-cyan-500/25 flex items-center justify-center gap-2"
+            className="w-full sm:w-auto px-7 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm transition-colors shadow-md flex items-center justify-center gap-2"
           >
-            <span>Start Fast Onboarding</span>
+            <span>Get started</span>
             <ArrowRight className="w-4 h-4" />
           </Link>
           <Link
             href="/login"
-            className="w-full sm:w-auto px-7 py-3.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2"
+            className="w-full sm:w-auto px-7 py-3.5 nexus-btn-neumorphic text-slate-900 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
           >
-            <Fingerprint className="w-4 h-4 text-cyan-400" />
-            <span>Biometric Passkey Login</span>
+            <Fingerprint className="w-4 h-4 text-blue-700" />
+            <span>Sign in with passkey</span>
           </Link>
           <Link
             href="/dashboard"
-            className="w-full sm:w-auto px-5 py-3.5 text-slate-400 hover:text-white rounded-xl text-sm transition-all flex items-center justify-center gap-1.5"
+            className="w-full sm:w-auto px-4 py-3.5 text-slate-800 hover:text-blue-700 rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-1"
           >
-            <span>Open Dashboard</span>
+            <span>Go to dashboard</span>
             <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
 
-        {/* Feature Grid */}
-        <div className="grid md:grid-cols-3 gap-6 mt-24 text-left">
-          {/* Card 1 */}
-          <div className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl hover:border-slate-700 transition-colors">
-            <div className="w-12 h-12 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 rounded-xl flex items-center justify-center mb-4">
+        {/* 3 Neumorphic Benefit Cards */}
+        <div className="grid md:grid-cols-3 gap-6 mt-20 text-left">
+          <div className="p-7 rounded-3xl nexus-card-neumorphic nexus-card-neumorphic-hover">
+            <div className="w-12 h-12 bg-blue-50 border border-blue-200 text-blue-700 rounded-2xl flex items-center justify-center mb-5">
               <Fingerprint className="w-6 h-6" />
             </div>
-            <h3 className="text-lg font-bold text-white mb-2">FIDO2 Resident Credentials</h3>
-            <p className="text-slate-400 text-xs leading-relaxed">
-              Phishing-resistant authentication via WebAuthn Level 3. Users sign in with Touch ID, Face ID, or Windows Hello
-              in a single biometric tap.
+            <h3 className="text-base font-bold text-slate-950 mb-2.5">
+              One-touch passkey sign-in
+            </h3>
+            <p className="text-slate-800 text-xs font-medium leading-relaxed">
+              No passwords to remember or phish. Use Touch ID, Face ID, or Windows Hello to access your business account in seconds.
             </p>
           </div>
 
-          {/* Card 2 */}
-          <div className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl hover:border-slate-700 transition-colors">
-            <div className="w-12 h-12 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-xl flex items-center justify-center mb-4">
-              <Activity className="w-6 h-6" />
+          <div className="p-7 rounded-3xl nexus-card-neumorphic nexus-card-neumorphic-hover">
+            <div className="w-12 h-12 bg-teal-50 border border-teal-200 text-teal-700 rounded-2xl flex items-center justify-center mb-5">
+              <Lock className="w-6 h-6" />
             </div>
-            <h3 className="text-lg font-bold text-white mb-2">Continuous Behavioral Biometrics</h3>
-            <p className="text-slate-400 text-xs leading-relaxed">
-              Background keystroke dynamics and mouse kinematics are continuously scored. If session hijacking occurs, trust is revoked immediately.
+            <h3 className="text-base font-bold text-slate-950 mb-2.5">
+              Silent continuous protection
+            </h3>
+            <p className="text-slate-800 text-xs font-medium leading-relaxed">
+              NexusID learns your natural typing pace in the background. If someone else sits at your unlocked laptop, transfers are paused automatically.
             </p>
           </div>
 
-          {/* Card 3 */}
-          <div className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl hover:border-slate-700 transition-colors">
-            <div className="w-12 h-12 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl flex items-center justify-center mb-4">
-              <Database className="w-6 h-6" />
+          <div className="p-7 rounded-3xl nexus-card-neumorphic nexus-card-neumorphic-hover">
+            <div className="w-12 h-12 bg-amber-50 border border-amber-300 text-amber-700 rounded-2xl flex items-center justify-center mb-5">
+              <Sparkles className="w-6 h-6" />
             </div>
-            <h3 className="text-lg font-bold text-white mb-2">Supabase PostgreSQL RLS</h3>
-            <p className="text-slate-400 text-xs leading-relaxed">
-              Zero Trust is enforced at the database engine. Row-Level Security policies evaluate live risk tokens before authorizing any financial transfer.
+            <h3 className="text-base font-bold text-slate-950 mb-2.5">
+              Daily Ksh rewards
+            </h3>
+            <p className="text-slate-800 text-xs font-medium leading-relaxed">
+              Complete quick daily typing phrases to earn up to Ksh 700 in account rewards while making your personal security profile even smoother.
             </p>
           </div>
         </div>

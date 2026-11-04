@@ -14,7 +14,6 @@ import {
   Lock,
   Mail,
   KeyRound,
-  ArrowLeft,
 } from 'lucide-react';
 
 export default function SignUpPage() {
@@ -32,7 +31,6 @@ export default function SignUpPage() {
 
   const [createdUser, setCreatedUser] = useState<any>(null);
 
-  // Step 1: Create Supabase Account
   const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
@@ -41,7 +39,6 @@ export default function SignUpPage() {
     setStatusMessage(null);
 
     try {
-      // 1. Sign up user
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
@@ -50,13 +47,12 @@ export default function SignUpPage() {
       if (authError || !authData.user) {
         setStatusMessage({
           type: 'error',
-          text: authError?.message || 'Failed to create account.',
+          text: authError?.message || 'Could not create account.',
         });
         setIsLoading(false);
         return;
       }
 
-      // If user session is not automatically active, sign them in with password
       if (!authData.session) {
         const { data: loginData, error: loginError } =
           await supabase.auth.signInWithPassword({
@@ -65,24 +61,22 @@ export default function SignUpPage() {
           });
 
         if (loginError || !loginData.session) {
-          // If Supabase has email confirmation enabled
           setStatusMessage({
             type: 'info',
-            text: 'Confirmation link sent to your email. Please verify your email before continuing.',
+            text: 'We sent a confirmation link to your email. Please verify your email to continue.',
           });
           setIsLoading(false);
           return;
         }
       }
 
-      // 2. Ensure profile exists with account_type via upsert (avoids duplicate key error)
       await supabase
         .from('user_profiles')
         .upsert(
           {
             user_id: authData.user.id,
             email: email.trim(),
-            account_type: 'Standard User',
+            account_type: 'Business Account',
             behavioral_risk_score: 0,
             hardware_enrolled: false,
             updated_at: new Date().toISOString(),
@@ -104,12 +98,11 @@ export default function SignUpPage() {
     }
   };
 
-  // Step 2: Register Biometric Device Passkey
   const handleRegisterPasskey = async () => {
     setIsLoading(true);
     setStatusMessage({
       type: 'info',
-      text: 'Touch your sensor or follow your device prompt (Windows Hello / Touch ID / Face ID)...',
+      text: 'Follow your device prompt (Windows Hello, Touch ID, or Face ID) to save your passkey...',
     });
 
     try {
@@ -121,7 +114,7 @@ export default function SignUpPage() {
         if (passkeyErr.name === 'NotAllowedError' || passkeyErr.message?.includes('not allowed')) {
           setStatusMessage({
             type: 'info',
-            text: 'Biometric prompt was cancelled. You can retry below or skip to dashboard.',
+            text: 'Passkey setup was skipped. You can try again below or continue to your account.',
           });
           setIsLoading(false);
           return;
@@ -129,7 +122,6 @@ export default function SignUpPage() {
         throw passkeyErr;
       }
 
-      // Update hardware_enrolled in user_profiles
       if (createdUser?.id) {
         await supabase
           .from('user_profiles')
@@ -158,18 +150,18 @@ export default function SignUpPage() {
 
       setStatusMessage({
         type: 'success',
-        text: 'Passkey registered successfully! Redirecting to your secure dashboard...',
+        text: 'Passkey saved! Opening your account...',
       });
 
       setTimeout(() => {
         router.push('/dashboard');
         router.refresh();
-      }, 1000);
+      }, 900);
     } catch (err: any) {
       console.error('Passkey enrollment error:', err);
       setStatusMessage({
         type: 'error',
-        text: err.message || 'Could not register passkey on this device. You can skip for now.',
+        text: err.message || 'Could not save passkey on this device. You can skip for now.',
       });
       setIsLoading(false);
     }
@@ -181,96 +173,84 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 selection:bg-cyan-500 selection:text-black">
-      {/* Background Cyber Grid */}
-      <div className="fixed inset-0 pointer-events-none opacity-20 bg-[radial-gradient(#06b6d4_1px,transparent_1px)] [background-size:24px_24px]" />
-
-      <div className="relative w-full max-w-md z-10">
-        {/* Brand Header */}
-        <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2 mb-3 group">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20 group-hover:scale-105 transition-transform">
-              <ShieldCheck className="w-6 h-6 text-slate-950" />
-            </div>
-            <span className="text-2xl font-bold tracking-tight text-white font-mono">
-              Nexus<span className="text-cyan-400">ID</span>
-            </span>
+    <div className="min-h-screen bg-[#EEF2F6] flex flex-col justify-center items-center p-4">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-6">
+          <Link href="/" className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-blue-600 text-white mb-3 shadow-md">
+            <ShieldCheck className="w-6 h-6" />
           </Link>
-          <h1 className="text-xl font-bold text-slate-100">
-            {step === 1 ? 'Create Zero-Trust Account' : 'Enroll Device Passkey'}
+          <h1 className="text-2xl font-extrabold text-slate-950">
+            {step === 1 ? 'Open your NexusID account' : 'Set up your passkey'}
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-slate-700 font-medium mt-1">
             {step === 1
-              ? 'Fast onboarding for modern, passwordless enterprise banking'
-              : 'Link your biometric authenticator for instantaneous passwordless access'}
+              ? 'Banking that knows it’s you — start with KSh 10,000.00 demo balance'
+              : 'Use Face ID, Touch ID, or Windows Hello for one-tap sign-in'}
           </p>
         </div>
 
-        {/* Card Container */}
-        <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl">
-          {/* Progress Indicator */}
-          <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-800 text-xs font-mono">
+        <div className="nexus-card-neumorphic rounded-3xl p-6 sm:p-8">
+          {/* Step Indicator */}
+          <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-200 text-xs">
             <div className="flex items-center gap-2">
               <span
                 className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
                   step === 1
-                    ? 'bg-cyan-500 text-slate-950'
-                    : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-teal-50 text-teal-800 border border-teal-300'
                 }`}
               >
                 1
               </span>
-              <span className={step === 1 ? 'text-cyan-400 font-semibold' : 'text-slate-400'}>
-                Credentials
+              <span className={step === 1 ? 'text-slate-950 font-bold' : 'text-slate-600 font-medium'}>
+                Account details
               </span>
             </div>
-            <div className="h-[1px] flex-1 mx-3 bg-slate-800" />
+            <div className="h-[1px] flex-1 mx-3 bg-slate-300" />
             <div className="flex items-center gap-2">
               <span
                 className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
                   step === 2
-                    ? 'bg-cyan-500 text-slate-950'
-                    : 'bg-slate-800 text-slate-500'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-200 text-slate-700'
                 }`}
               >
                 2
               </span>
-              <span className={step === 2 ? 'text-cyan-400 font-semibold' : 'text-slate-500'}>
-                Device Passkey
+              <span className={step === 2 ? 'text-slate-950 font-bold' : 'text-slate-600 font-medium'}>
+                Device passkey
               </span>
             </div>
           </div>
 
-          {/* Status Alert */}
           {statusMessage && (
             <div
-              className={`mb-6 p-4 rounded-xl text-xs flex items-start gap-3 border ${
+              className={`mb-6 p-4 rounded-xl text-xs font-semibold flex items-start gap-2.5 border ${
                 statusMessage.type === 'error'
-                  ? 'bg-rose-950/40 border-rose-800/60 text-rose-300'
+                  ? 'bg-red-50 border-red-300 text-red-950'
                   : statusMessage.type === 'success'
-                  ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
-                  : 'bg-cyan-950/40 border-cyan-800/60 text-cyan-300'
+                  ? 'bg-teal-50 border-teal-300 text-teal-950'
+                  : 'bg-blue-50 border-blue-300 text-blue-950'
               }`}
             >
               <div className="mt-0.5">
                 {statusMessage.type === 'error' ? (
-                  <Lock className="w-4 h-4 text-rose-400" />
+                  <Lock className="w-4 h-4 text-red-700" />
                 ) : statusMessage.type === 'success' ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <CheckCircle2 className="w-4 h-4 text-teal-700" />
                 ) : (
-                  <Fingerprint className="w-4 h-4 text-cyan-400" />
+                  <Fingerprint className="w-4 h-4 text-blue-700" />
                 )}
               </div>
               <p className="flex-1 leading-relaxed">{statusMessage.text}</p>
             </div>
           )}
 
-          {/* STEP 1: Account Setup */}
           {step === 1 && (
             <form onSubmit={handleCreateAccount} className="space-y-4">
               <div>
-                <label className="block text-xs font-mono uppercase text-slate-400 mb-1.5">
-                  Work / Corporate Email
+                <label className="block text-xs font-bold text-slate-900 mb-1.5">
+                  Work or business email
                 </label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -279,15 +259,15 @@ export default function SignUpPage() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="name@enterprise-bank.com"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-500 transition-colors"
+                    placeholder="you@company.co.ke"
+                    className="w-full nexus-input-neumorphic rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-950 placeholder-slate-500 font-medium"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-mono uppercase text-slate-400 mb-1.5">
-                  Initial Password
+                <label className="block text-xs font-bold text-slate-900 mb-1.5">
+                  Create a backup password
                 </label>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -297,28 +277,25 @@ export default function SignUpPage() {
                     minLength={6}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-500 transition-colors"
+                    placeholder="At least 6 characters"
+                    className="w-full nexus-input-neumorphic rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-950 placeholder-slate-500 font-medium"
                   />
                 </div>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Used once to establish your cryptographic identity before passkey binding.
-                </p>
               </div>
 
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full mt-2 py-3 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 font-semibold text-sm hover:from-cyan-400 hover:to-blue-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20 disabled:opacity-50"
+                className="w-full mt-2 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 cursor-pointer"
               >
                 {isLoading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Creating Identity...</span>
+                    <span>Creating account...</span>
                   </>
                 ) : (
                   <>
-                    <span>Continue to Passkey Binding</span>
+                    <span>Continue</span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
@@ -326,20 +303,18 @@ export default function SignUpPage() {
             </form>
           )}
 
-          {/* STEP 2: Biometric Device Passkey */}
           {step === 2 && (
             <div className="space-y-5 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mx-auto text-cyan-400 shadow-inner">
-                <Fingerprint className="w-8 h-8" />
+              <div className="w-14 h-14 rounded-2xl bg-blue-50 border border-blue-200 flex items-center justify-center mx-auto text-blue-700">
+                <Fingerprint className="w-7 h-7" />
               </div>
 
               <div>
-                <h3 className="text-base font-semibold text-white">
-                  Bind Hardware Passkey
+                <h3 className="text-base font-bold text-slate-950">
+                  Enable passkey sign-in
                 </h3>
-                <p className="text-xs text-slate-400 mt-1.5 leading-relaxed max-w-sm mx-auto">
-                  Register your device&apos;s built-in authenticator (Windows Hello, Touch ID, Face ID)
-                  or a physical FIDO2 YubiKey for seamless, phishing-resistant logins.
+                <p className="text-xs text-slate-800 font-medium mt-1.5 leading-relaxed max-w-sm mx-auto">
+                  Link this device&apos;s fingerprint or facial recognition so you can sign in and approve transfers with a single touch.
                 </p>
               </div>
 
@@ -348,17 +323,17 @@ export default function SignUpPage() {
                   type="button"
                   onClick={handleRegisterPasskey}
                   disabled={isLoading}
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 font-semibold text-sm hover:from-cyan-400 hover:to-blue-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20 disabled:opacity-50"
+                  className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 cursor-pointer"
                 >
                   {isLoading ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Waiting for Biometric Gesture...</span>
+                      <span>Waiting for device prompt...</span>
                     </>
                   ) : (
                     <>
                       <KeyRound className="w-4 h-4" />
-                      <span>Register Device Passkey & Enter</span>
+                      <span>Set up passkey & continue</span>
                     </>
                   )}
                 </button>
@@ -367,21 +342,20 @@ export default function SignUpPage() {
                   type="button"
                   onClick={handleSkipToDashboard}
                   disabled={isLoading}
-                  className="w-full py-2.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                  className="w-full py-2 text-xs font-semibold text-slate-700 hover:text-slate-950 transition-colors cursor-pointer"
                 >
-                  Skip for now, continue to Dashboard →
+                  Skip for now →
                 </button>
               </div>
             </div>
           )}
 
-          {/* Navigation Footer */}
-          <div className="mt-6 pt-4 border-t border-slate-800 text-center">
+          <div className="mt-6 pt-4 border-t border-slate-200 text-center">
             <Link
               href="/login"
-              className="text-xs text-cyan-400 hover:text-cyan-300 font-medium transition-colors"
+              className="text-xs text-blue-700 hover:text-blue-900 font-bold transition-colors"
             >
-              Already have an account? Sign in with Passkey →
+              Already have an account? Sign in →
             </Link>
           </div>
         </div>
