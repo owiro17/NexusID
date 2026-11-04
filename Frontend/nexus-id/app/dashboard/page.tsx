@@ -21,7 +21,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
-const INITIAL_CREDIT_BALANCE = 10000.0;
+const INITIAL_CREDIT_BALANCE = 250000.0;
 const HIGH_VALUE_STEP_UP_KES = 100000.0;
 
 function formatKes(amount: number): string {
@@ -243,6 +243,35 @@ export default function DashboardPage() {
     await executeDatabaseTransfer(targetAccount.trim(), amount, transferMemo.trim());
   };
 
+  const handleTopUpFloat = async () => {
+    if (!currentUserId) return;
+    setIsTransferring(true);
+    setStatusMsg(null);
+    try {
+      const { error } = await supabase.from('financial_ledgers').insert([
+        {
+          user_id: currentUserId,
+          target_account: 'Float Top-Up (SME Working Capital Grant)',
+          transaction_amount: -50000.0,
+          status: 'completed',
+        },
+      ]);
+      if (error) throw error;
+      await loadDashboardData();
+      setStatusMsg({
+        type: 'success',
+        text: 'Account credited with KSh 50,000.00 working float.',
+      });
+    } catch (err: any) {
+      setStatusMsg({
+        type: 'error',
+        text: err?.message || 'Could not top up float at this moment.',
+      });
+    } finally {
+      setIsTransferring(false);
+    }
+  };
+
   const handleStepUpVerified = async () => {
     setIsStepUpOpen(false);
     setSimulatedRisk(0);
@@ -257,12 +286,13 @@ export default function DashboardPage() {
     } else {
       setStatusMsg({
         type: 'success',
-        text: 'Identity confirmed. Your account protection is back to normal.',
+        text: 'Identity confirmed with passkey. Behavioral risk score cleared and trust restored.',
       });
+      await loadDashboardData();
     }
   };
 
-  const isConfirmNeeded = activeRiskScore > 70;
+  const isConfirmNeeded = activeRiskScore >= 70;
   const isLearningStyle =
     !isConfirmNeeded && operatorVerification?.status !== 'enrolled';
   const learningProgressPct =
@@ -309,20 +339,47 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={() => recipientInputRef.current?.focus()}
-              className="nexus-btn-neumorphic px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold transition-all duration-150 flex items-center gap-2 cursor-pointer"
-            >
-              <Send className="w-4 h-4" />
-              <span>Send money</span>
-            </button>
+            {isConfirmNeeded ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingTransferPayload(null);
+                  setIsStepUpOpen(true);
+                }}
+                className="nexus-btn-neumorphic px-5 py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-sm font-bold transition-all duration-150 flex items-center gap-2 cursor-pointer shadow-md"
+              >
+                <Fingerprint className="w-4 h-4 text-slate-950" />
+                <span>Verify with passkey</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => recipientInputRef.current?.focus()}
+                className="nexus-btn-neumorphic px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold transition-all duration-150 flex items-center gap-2 cursor-pointer"
+              >
+                <Send className="w-4 h-4" />
+                <span>Send money</span>
+              </button>
+            )}
+
+            {availableBalance < 5000 && (
+              <button
+                type="button"
+                onClick={handleTopUpFloat}
+                disabled={isTransferring}
+                className="nexus-btn-neumorphic px-4 py-3 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-300 text-teal-950 text-sm font-bold transition-all duration-150 flex items-center gap-2 cursor-pointer"
+              >
+                <RefreshCw className={`w-4 h-4 text-teal-700 ${isTransferring ? 'animate-spin' : ''}`} />
+                <span>Top up float</span>
+              </button>
+            )}
+
             <Link
               href="/dashboard/challenges"
               className="nexus-btn-neumorphic px-4 py-3 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 text-sm font-bold transition-all duration-150 flex items-center gap-2 cursor-pointer"
             >
               <Sparkles className="w-4 h-4 text-amber-700" />
-              <span>Earn KSh rewards</span>
+              <span>Earn Ksh rewards</span>
             </Link>
           </div>
         </div>
@@ -576,12 +633,21 @@ export default function DashboardPage() {
                 <button
                   type="submit"
                   disabled={isTransferring}
-                  className="nexus-btn-neumorphic w-full py-3 px-4 rounded-xl font-bold text-sm bg-blue-600 hover:bg-blue-700 text-white transition-colors duration-150 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                  className={`nexus-btn-neumorphic w-full py-3 px-4 rounded-xl font-bold text-sm transition-colors duration-150 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer ${
+                    isConfirmNeeded
+                      ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-md'
+                      : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  }`}
                 >
                   {isTransferring ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Sending...</span>
+                      <span>{isConfirmNeeded ? 'Verifying...' : 'Sending...'}</span>
+                    </>
+                  ) : isConfirmNeeded ? (
+                    <>
+                      <Fingerprint className="w-4 h-4 text-slate-950" />
+                      <span>Verify with passkey to send</span>
                     </>
                   ) : (
                     <>
@@ -714,7 +780,7 @@ export default function DashboardPage() {
         actionDescription={
           pendingTransferPayload
             ? `Send ${formatKes(pendingTransferPayload.amount)} to ${pendingTransferPayload.targetAccount}`
-            : 'Confirm account access'
+            : 'Restore trusted operator status & approve transfers'
         }
         onVerified={handleStepUpVerified}
         onVerify={() => handleStepUpVerified()}

@@ -184,7 +184,7 @@ export default function SignUpPage() {
           </h1>
           <p className="text-xs text-slate-700 font-medium mt-1">
             {step === 1
-              ? 'Banking that knows it’s you — start with KSh 10,000.00 demo balance'
+              ? 'Banking that knows it’s you — start with KSh 250,000.00 demo float balance'
               : 'Use Face ID, Touch ID, or Windows Hello for one-tap sign-in'}
           </p>
         </div>

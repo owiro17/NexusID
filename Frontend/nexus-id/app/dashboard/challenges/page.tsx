@@ -57,7 +57,7 @@ const DAILY_CHALLENGES: ChallengeDefinition[] = [
   },
 ];
 
-const INITIAL_CREDIT_BALANCE = 10000.0;
+const INITIAL_CREDIT_BALANCE = 250000.0;
 
 function formatKes(amount: number): string {
   return `KSh ${amount.toLocaleString('en-KE', {
