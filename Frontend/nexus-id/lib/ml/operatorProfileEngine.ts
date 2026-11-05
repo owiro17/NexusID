@@ -483,7 +483,7 @@ export function evaluateBiometricReadiness(
   ).dist;
 
   const minImpostorDist = Number(Math.min(dFast, dSlow).toFixed(2));
-  const separabilityPassed = minImpostorDist > profile.threshold * 1.15;
+  const separabilityPassed = minImpostorDist >= Number((profile.threshold * 1.02).toFixed(2));
 
   const readinessPercent = Math.min(
     100,
