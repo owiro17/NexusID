@@ -171,6 +171,9 @@ export async function POST(request: Request) {
             rlState: serializedProfile.rlState,
             boundIpAddress: serializedProfile.boundIpAddress,
             lastSessionId: sessionId,
+            calibrationWindows: serializedProfile.calibrationWindows,
+            lastDistance: serializedProfile.lastDistance,
+            lastReconstructionError: serializedProfile.lastReconstructionError,
           };
 
           if (existingBaseline?.id) {

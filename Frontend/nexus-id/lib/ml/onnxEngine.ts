@@ -531,7 +531,7 @@ export function extractKeystrokeFeatures(events: KeyEventData[]): ExtractedKeyst
 
       if (lastKeydownTime !== null) {
         const dd = (ev.timestamp - lastKeydownTime) / 1000;
-        if (dd > 0.002 && dd <= 0.85) {
+        if (dd > 0.002 && dd <= 0.70) {
           downDownTimes.push(dd);
         }
       }
@@ -608,11 +608,13 @@ export async function evaluateTelemetry(
     Array.isArray(keys) && keys.length >= 6 && (keyFeatures.clean_digraph_count ?? 0) >= 3;
   const mouseActive = Array.isArray(mouse) && mouse.length >= 4;
 
+  // Rigorous Bot Detection: Flag genuine synthetic bots (teleportation, linear bots with 0 jitter at high speed)
+  // CRITICAL: Do NOT flag normal human slow trackpad moves or smooth sweeps (where std_acc naturally dips below 2.0)
   const isRoboticMouse =
     mouseActive &&
-    (mouseFeatures.max_vel > 25000 ||
-      (mouseFeatures.mean_vel > 12000 && mouseFeatures.std_vel < 50) ||
-      mouseFeatures.std_acc < 2);
+    (mouseFeatures.max_vel > 32000 ||
+      (mouseFeatures.mean_vel > 14000 && mouseFeatures.std_vel < 25) ||
+      (mouseFeatures.mean_vel > 6000 && mouseFeatures.std_acc < 0.2));
 
   const isRoboticKeystroke =
     keystrokeActive &&

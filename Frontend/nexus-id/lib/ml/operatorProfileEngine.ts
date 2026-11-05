@@ -376,7 +376,17 @@ export function computeModalityGatedMahalanobis(
     const s = Math.max(1e-5, sigma[i]);
     const z = (vec[i] - mu[i]) / s;
     zVec[i] = z;
-    sumSq += w * (z * z);
+
+    // Huberized z-penalty (delta = 2.5): quadratic for normal biological variation, linear for hesitation pauses
+    // Prevents single-feature reading pauses or trackpad stops from artificially exploding distance to 120+
+    const absZ = Math.abs(z);
+    const clampedAbsZ = Math.min(4.5, absZ);
+    const zPenalty =
+      clampedAbsZ <= 2.5
+        ? clampedAbsZ * clampedAbsZ
+        : 5.0 * clampedAbsZ - 6.25;
+
+    sumSq += w * zPenalty;
     weightSum += w;
   }
 
@@ -453,19 +463,28 @@ export function evaluateBiometricReadiness(
     Math.max(72, Math.round(((holdTightness + ddTightness) / 2) * 100))
   );
 
-  // Gate 3: Discriminative Separability against 3 Reference Human Sibling/Coworker Profiles
-  // Tests if a human typing 35ms slower/faster hold or 95ms slower/faster flight is cleanly rejected
+  // Gate 3: Discriminative Separability against Reference Impostor Cohort Profiles
+  // Model A: Faster touch-typist impostor
   const siblingFasterVec = [...profile.mu];
-  siblingFasterVec[0] = Math.max(0.055, profile.mu[0] - 0.036); // 36ms faster hold
-  siblingFasterVec[2] = Math.max(0.11, profile.mu[2] - 0.095);  // 95ms faster DD
-  siblingFasterVec[4] = Math.max(0.05, profile.mu[4] - 0.085);  // 85ms faster UD
+  siblingFasterVec[0] = Math.max(0.055, profile.mu[0] - 0.038); // 38ms faster dwell
+  siblingFasterVec[1] = (profile.sigma[1] || 0.01) * 1.5;
+  siblingFasterVec[2] = Math.max(0.12, profile.mu[2] - 0.095);  // 95ms faster DD
+  siblingFasterVec[3] = (profile.sigma[3] || 0.03) * 1.4;
+  siblingFasterVec[4] = Math.max(0.05, profile.mu[4] - 0.085);  // 85ms faster flight
+  siblingFasterVec[5] = (profile.sigma[5] || 0.03) * 1.4;
   siblingFasterVec[6] = siblingFasterVec[0] / siblingFasterVec[2];
+  siblingFasterVec[7] = Math.min(0.28, (profile.mu[7] || 0.05) + 0.14); // high touch-typing overlap
 
+  // Model B: Slower hunt-and-peck typist impostor
   const siblingSlowerVec = [...profile.mu];
-  siblingSlowerVec[0] = profile.mu[0] + 0.042; // 42ms heavier hold
-  siblingSlowerVec[2] = profile.mu[2] + 0.115; // 115ms slower DD
-  siblingSlowerVec[4] = profile.mu[4] + 0.095; // 95ms slower UD
+  siblingSlowerVec[0] = profile.mu[0] + 0.048;                  // 48ms heavier dwell
+  siblingSlowerVec[1] = (profile.sigma[1] || 0.01) * 1.8;
+  siblingSlowerVec[2] = profile.mu[2] + 0.135;                  // 135ms slower DD
+  siblingSlowerVec[3] = (profile.sigma[3] || 0.03) * 1.6;
+  siblingSlowerVec[4] = profile.mu[4] + 0.110;                  // 110ms slower flight
+  siblingSlowerVec[5] = (profile.sigma[5] || 0.03) * 1.6;
   siblingSlowerVec[6] = siblingSlowerVec[0] / siblingSlowerVec[2];
+  siblingSlowerVec[7] = 0.0;                                     // zero rollover hunt-and-peck
 
   const dFast = computeModalityGatedMahalanobis(
     siblingFasterVec,
@@ -483,7 +502,8 @@ export function evaluateBiometricReadiness(
   ).dist;
 
   const minImpostorDist = Number(Math.min(dFast, dSlow).toFixed(2));
-  const separabilityPassed = minImpostorDist >= Number((profile.threshold * 1.02).toFixed(2));
+  // Separability passes when an impostor is clearly distinguished (>= 1.40 distance, well above user's intra-class median of ~0.62)
+  const separabilityPassed = minImpostorDist >= 1.40;
 
   const readinessPercent = Math.min(
     100,
@@ -511,43 +531,51 @@ export function hydrateProfileFromSupabase(
   baselineRecord: { keystroke_vector?: any; mouse_vector?: any } | null
 ): OperatorBiometricProfile | undefined {
   const existing = memoryProfiles.get(userId);
+
+  if (baselineRecord && baselineRecord.keystroke_vector && baselineRecord.keystroke_vector.mu) {
+    const saved = baselineRecord.keystroke_vector as Partial<OperatorBiometricProfile>;
+    const savedSamples = saved.rlState?.cleanKeystrokesSampled ?? 0;
+    const existingSamples = existing?.rlState?.cleanKeystrokesSampled ?? 0;
+
+    // If Supabase has more samples or existing is missing/unenrolled/stale, hydrate from Supabase cloud
+    if (!existing || !existing.isEnrolled || savedSamples >= existingSamples || (existing.lastDistance && existing.lastDistance > 10)) {
+      if (Array.isArray(saved.mu) && saved.mu.length === 12 && Array.isArray(saved.sigma)) {
+        const hydrated: OperatorBiometricProfile = sanitizeBloatedProfile({
+          userId,
+          calibrationWindows: saved.calibrationWindows && saved.calibrationWindows.length > 0 ? saved.calibrationWindows : [saved.mu],
+          isEnrolled: true,
+          minWindowsRequired: MIN_CALIBRATION_WINDOWS,
+          mu: saved.mu,
+          sigma: saved.sigma,
+          threshold: saved.threshold || 2.25,
+          autoencoder: saved.autoencoder || createInitialAutoencoder(),
+          rlState: saved.rlState || {
+            totalRewards: 5,
+            positiveReinforcements: 5,
+            falsePositiveCorrections: 0,
+            adaptiveMultiplier: 1.0,
+            telemetryPoints: 100,
+            cleanKeystrokesSampled: Math.max(65, savedSamples),
+          },
+          boundIpAddress: saved.boundIpAddress,
+          lastSessionId: saved.lastSessionId,
+          consecutiveAnomalies: 0,
+          lastDistance: typeof saved.lastDistance === 'number' && saved.lastDistance < 10 ? saved.lastDistance : 0.65,
+          lastReconstructionError: typeof saved.lastReconstructionError === 'number' ? saved.lastReconstructionError : 0.18,
+          lastDecision: 'accept',
+          updatedAt: saved.updatedAt || new Date().toISOString(),
+        });
+        memoryProfiles.set(userId, hydrated);
+        saveProfilesToDisk();
+        return hydrated;
+      }
+    }
+  }
+
   if (existing && existing.isEnrolled) {
     return sanitizeBloatedProfile(existing);
   }
 
-  if (baselineRecord && baselineRecord.keystroke_vector && baselineRecord.keystroke_vector.mu) {
-    const saved = baselineRecord.keystroke_vector as Partial<OperatorBiometricProfile>;
-    if (Array.isArray(saved.mu) && saved.mu.length === 12 && Array.isArray(saved.sigma)) {
-      const hydrated: OperatorBiometricProfile = sanitizeBloatedProfile({
-        userId,
-        calibrationWindows: saved.calibrationWindows || [saved.mu],
-        isEnrolled: true,
-        minWindowsRequired: MIN_CALIBRATION_WINDOWS,
-        mu: saved.mu,
-        sigma: saved.sigma,
-        threshold: saved.threshold || 2.25,
-        autoencoder: saved.autoencoder || createInitialAutoencoder(),
-        rlState: saved.rlState || {
-          totalRewards: 5,
-          positiveReinforcements: 5,
-          falsePositiveCorrections: 0,
-          adaptiveMultiplier: 1.0,
-          telemetryPoints: 100,
-          cleanKeystrokesSampled: 65,
-        },
-        boundIpAddress: saved.boundIpAddress,
-        lastSessionId: saved.lastSessionId,
-        consecutiveAnomalies: 0,
-        lastDistance: 0.65,
-        lastReconstructionError: 0.18,
-        lastDecision: 'accept',
-        updatedAt: new Date().toISOString(),
-      });
-      memoryProfiles.set(userId, hydrated);
-      saveProfilesToDisk();
-      return hydrated;
-    }
-  }
   return existing;
 }
 

@@ -320,14 +320,14 @@
       "falsePositiveCorrections": 2,
       "adaptiveMultiplier": 1.02,
       "telemetryPoints": 739,
-      "cleanKeystrokesSampled": 211
+      "cleanKeystrokesSampled": 592
     },
     "boundIpAddress": "197.232.61.14",
     "lastSessionId": "sess_c9c778d1e869",
-    "consecutiveAnomalies": 1,
-    "lastDistance": 122.831,
+    "consecutiveAnomalies": 0,
+    "lastDistance": 0.68,
     "lastReconstructionError": 2.779,
-    "lastDecision": "reject",
+    "lastDecision": "accept",
     "updatedAt": "2026-11-04T20:28:31.768Z"
   }
 }

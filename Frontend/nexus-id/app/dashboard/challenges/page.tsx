@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { useTelemetry } from '@/hooks/useTelemetry';
+import { TRAINING_PHRASES, type TrainingPhrase } from '@/lib/data/trainingPhrases';
 import type { FinancialLedger } from '@/types/auth';
 import {
   Trophy,
@@ -15,47 +16,11 @@ import {
   ArrowRight,
   RefreshCw,
   Award,
+  Shuffle,
+  ChevronLeft,
+  ChevronRight,
+  BookOpen,
 } from 'lucide-react';
-
-interface ChallengeDefinition {
-  id: string;
-  tier: 'Bronze' | 'Silver' | 'Gold';
-  title: string;
-  subtitle: string;
-  promptText: string;
-  pointsRequired: number;
-  rewardKes: number;
-}
-
-const DAILY_CHALLENGES: ChallengeDefinition[] = [
-  {
-    id: 'challenge_bronze_kyc',
-    tier: 'Bronze',
-    title: 'Quick phrase',
-    subtitle: 'Type a short everyday payment confirmation sentence.',
-    promptText: 'authorize agency settlement vault 904 for immediate clearing',
-    pointsRequired: 100,
-    rewardKes: 50,
-  },
-  {
-    id: 'challenge_silver_wire',
-    tier: 'Silver',
-    title: 'Account number practice',
-    subtitle: 'Practice typing an account reference with letters and numbers.',
-    promptText: 'verify swift routing KE88NXID0045219000 and release escrow tranche',
-    pointsRequired: 220,
-    rewardKes: 150,
-  },
-  {
-    id: 'challenge_gold_zero_trust',
-    tier: 'Gold',
-    title: 'Long phrase',
-    subtitle: 'Complete a full security sentence to unlock the top daily reward.',
-    promptText: 'continuous behavioral biometrics protect agency banking against session hijacking',
-    pointsRequired: 400,
-    rewardKes: 500,
-  },
-];
 
 const INITIAL_CREDIT_BALANCE = 250000.0;
 
@@ -80,9 +45,12 @@ export default function DailyChallengesPage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<FinancialLedger[]>([]);
 
-  const [activeChallengeId, setActiveChallengeId] = useState<string>(DAILY_CHALLENGES[0].id);
+  // Phrase selection & filter state
+  const [selectedTier, setSelectedTier] = useState<'All' | 'Bronze' | 'Silver' | 'Gold'>('Bronze');
+  const [activePhraseId, setActivePhraseId] = useState<string>(TRAINING_PHRASES[0].id);
+
   const [typedInput, setTypedInput] = useState<string>('');
-  const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
+  const [completedPhrases, setCompletedPhrases] = useState<string[]>([]);
   const [localPoints, setLocalPoints] = useState<number>(120);
   const [isClaimingReward, setIsClaimingReward] = useState<boolean>(false);
   const [statusBanner, setStatusBanner] = useState<{
@@ -90,8 +58,23 @@ export default function DailyChallengesPage() {
     text: string;
   } | null>(null);
 
-  const activeChallenge =
-    DAILY_CHALLENGES.find((c) => c.id === activeChallengeId) || DAILY_CHALLENGES[0];
+  // Filtered phrase pool based on active tier tab
+  const tierPhrases = useMemo(() => {
+    if (selectedTier === 'All') return TRAINING_PHRASES;
+    return TRAINING_PHRASES.filter((p) => p.tier === selectedTier);
+  }, [selectedTier]);
+
+  // Current active phrase definition
+  const activePhrase: TrainingPhrase = useMemo(() => {
+    const found = TRAINING_PHRASES.find((p) => p.id === activePhraseId);
+    return found || tierPhrases[0] || TRAINING_PHRASES[0];
+  }, [activePhraseId, tierPhrases]);
+
+  // Index of active phrase in current filtered list
+  const currentFilteredIndex = useMemo(() => {
+    const idx = tierPhrases.findIndex((p) => p.id === activePhrase.id);
+    return idx >= 0 ? idx : 0;
+  }, [tierPhrases, activePhrase.id]);
 
   const loadLedger = useCallback(async () => {
     try {
@@ -113,20 +96,19 @@ export default function DailyChallengesPage() {
       if (Array.isArray(ledgerData)) {
         setTransactions(ledgerData as FinancialLedger[]);
         const claimedIds: string[] = [];
-        for (const ch of DAILY_CHALLENGES) {
+        for (const p of TRAINING_PHRASES) {
           if (
             ledgerData.some(
               (tx) =>
-                tx.target_account?.includes(ch.title) ||
-                tx.target_account?.includes(`Tier ${ch.tier}`) ||
-                tx.target_account?.includes(`+KSh ${ch.rewardKes}`) ||
-                tx.target_account?.includes(`+$${ch.rewardKes}`)
+                tx.target_account?.includes(p.title) ||
+                tx.target_account?.includes(p.id) ||
+                tx.target_account?.includes(`+KSh ${p.rewardKes}`)
             )
           ) {
-            claimedIds.push(ch.id);
+            claimedIds.push(p.id);
           }
         }
-        setCompletedChallenges(claimedIds);
+        setCompletedPhrases(claimedIds);
       }
     } catch {
       // ignore
@@ -153,7 +135,7 @@ export default function DailyChallengesPage() {
   const availableBalance = Math.max(0, INITIAL_CREDIT_BALANCE - totalOutflow + totalRewardsInflow);
 
   // Character-by-character matching
-  const targetClean = activeChallenge.promptText.trim().toLowerCase();
+  const targetClean = activePhrase.promptText.trim().toLowerCase();
   const typedClean = typedInput.trim().toLowerCase();
 
   let matchedChars = 0;
@@ -168,11 +150,39 @@ export default function DailyChallengesPage() {
     100,
     Math.round((matchedChars / Math.max(1, targetClean.length)) * 100)
   );
-  const isPromptMatched = typingMatchPct >= 95 || typedClean === targetClean;
+  const isPromptMatched = typingMatchPct >= 96 || typedClean === targetClean;
 
   const handleTypingChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setTypedInput(e.target.value);
     setLocalPoints((prev) => prev + 3);
+  };
+
+  // Switch to next phrase in library
+  const handleNextPhrase = () => {
+    const nextIdx = (currentFilteredIndex + 1) % tierPhrases.length;
+    setActivePhraseId(tierPhrases[nextIdx].id);
+    setTypedInput('');
+    setStatusBanner(null);
+  };
+
+  // Switch to previous phrase
+  const handlePrevPhrase = () => {
+    const prevIdx = (currentFilteredIndex - 1 + tierPhrases.length) % tierPhrases.length;
+    setActivePhraseId(tierPhrases[prevIdx].id);
+    setTypedInput('');
+    setStatusBanner(null);
+  };
+
+  // Shuffle a random phrase from current tier or all 101 phrases
+  const handleShufflePhrase = () => {
+    const pool = tierPhrases.length > 1 ? tierPhrases : TRAINING_PHRASES;
+    let randomIdx = Math.floor(Math.random() * pool.length);
+    if (pool[randomIdx].id === activePhrase.id && pool.length > 1) {
+      randomIdx = (randomIdx + 1) % pool.length;
+    }
+    setActivePhraseId(pool[randomIdx].id);
+    setTypedInput('');
+    setStatusBanner(null);
   };
 
   const handleCompleteChallenge = async (e: React.FormEvent) => {
@@ -183,14 +193,14 @@ export default function DailyChallengesPage() {
     setStatusBanner(null);
 
     try {
-      await rewardContinualModel(activeChallenge.pointsRequired);
-      setLocalPoints((prev) => prev + activeChallenge.pointsRequired);
+      await rewardContinualModel(activePhrase.pointsRequired);
+      setLocalPoints((prev) => prev + activePhrase.pointsRequired);
 
       const { error } = await supabase.from('financial_ledgers').insert([
         {
           user_id: currentUserId,
-          target_account: `Daily Reward: ${activeChallenge.title} (+KSh ${activeChallenge.rewardKes})`,
-          transaction_amount: -activeChallenge.rewardKes,
+          target_account: `Biometric Training Reward: ${activePhrase.title} (+KSh ${activePhrase.rewardKes})`,
+          transaction_amount: -activePhrase.rewardKes,
           status: 'completed',
         },
       ]);
@@ -205,22 +215,28 @@ export default function DailyChallengesPage() {
           eventType: 'STEP_UP_VERIFIED',
           recordedRiskScore: liveRiskScore,
           metadata: {
-            challenge_id: activeChallenge.id,
-            reward_kes: activeChallenge.rewardKes,
+            phrase_id: activePhrase.id,
+            phrase_tier: activePhrase.tier,
+            reward_kes: activePhrase.rewardKes,
           },
         }),
       });
 
-      setCompletedChallenges((prev) =>
-        prev.includes(activeChallenge.id) ? prev : [...prev, activeChallenge.id]
+      setCompletedPhrases((prev) =>
+        prev.includes(activePhrase.id) ? prev : [...prev, activePhrase.id]
       );
       setTypedInput('');
       await loadLedger();
 
       setStatusBanner({
         type: 'success',
-        text: `Well done! ${formatKes(activeChallenge.rewardKes)} has been added to your balance.`,
+        text: `Excellent! ${formatKes(activePhrase.rewardKes)} credited. Your biometric baseline has been updated.`,
       });
+
+      // Automatically advance to the next phrase to keep the typing flow smooth!
+      setTimeout(() => {
+        handleNextPhrase();
+      }, 1600);
     } catch (err: any) {
       setStatusBanner({
         type: 'error',
@@ -230,6 +246,8 @@ export default function DailyChallengesPage() {
       setIsClaimingReward(false);
     }
   };
+
+  const isCurrentDone = completedPhrases.includes(activePhrase.id);
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -242,10 +260,10 @@ export default function DailyChallengesPage() {
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-950">
-                Earn daily KSh rewards while we learn your style
+                100+ Behavioral Biometric Training Challenges
               </h2>
               <p className="text-xs text-slate-700 font-medium mt-0.5">
-                Each short typing exercise helps NexusID recognize you more smoothly and credits real rewards to your account.
+                Practice varied typing rhythms, account routing codes, and regulatory sentences to train your personal profile and earn real KSh rewards.
               </p>
             </div>
           </div>
@@ -276,9 +294,9 @@ export default function DailyChallengesPage() {
           </div>
 
           <div className="nexus-well-inset p-4 bg-amber-50/80 border-amber-200">
-            <span className="text-xs text-amber-950 font-bold block">Completed today</span>
+            <span className="text-xs text-amber-950 font-bold block">Phrases mastered</span>
             <span className="text-xl font-extrabold text-amber-800 tabular-nums mt-1 block">
-              {completedChallenges.length} of {DAILY_CHALLENGES.length} rewards
+              {completedPhrases.length} of {TRAINING_PHRASES.length} phrases
             </span>
           </div>
         </div>
@@ -302,13 +320,13 @@ export default function DailyChallengesPage() {
           <div className="flex justify-between text-[11px] text-slate-700 font-semibold tabular-nums">
             <span>Start</span>
             <span className={effectivePoints >= 100 ? 'text-teal-900 font-bold' : ''}>
-              Bronze • KSh 50
+              Bronze (33 phrases) • KSh 50
             </span>
             <span className={effectivePoints >= 220 ? 'text-blue-900 font-bold' : ''}>
-              Silver • KSh 150
+              Silver (34 phrases) • KSh 150
             </span>
             <span className={effectivePoints >= 400 ? 'text-amber-900 font-bold' : ''}>
-              Gold • KSh 500
+              Gold (34 phrases) • KSh 500
             </span>
           </div>
         </div>
@@ -331,86 +349,171 @@ export default function DailyChallengesPage() {
         </div>
       )}
 
-      {/* 3 Simple Reward Tier Cards + Clean Typing Box */}
+      {/* Tier Filter Tabs & Navigation Strip */}
       <section className="nexus-card-neumorphic p-6 sm:p-8 space-y-6">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded-xl bg-blue-50 text-blue-700 border border-blue-200">
-            <Award className="w-5 h-5" />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-blue-50 text-blue-700 border border-blue-200">
+              <Award className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-950">Training Phrase Library</h3>
+              <p className="text-xs text-slate-700 font-medium">
+                101 diverse phrases designed to test dwell times, flight latencies, and capitalization rhythms
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-base font-bold text-slate-950">Choose a reward challenge</h3>
-            <p className="text-xs text-slate-700 font-medium">
-              Select a card below and type the phrase at your natural pace
-            </p>
+
+          {/* Quick Action Buttons: Prev, Shuffle, Next */}
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={handlePrevPhrase}
+              title="Previous phrase"
+              className="p-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 hover:text-slate-950 transition-colors cursor-pointer"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleShufflePhrase}
+              className="px-3 py-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 hover:text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+            >
+              <Shuffle className="w-3.5 h-3.5 text-blue-700" />
+              <span>Shuffle</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleNextPhrase}
+              title="Next phrase"
+              className="p-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 hover:text-slate-950 transition-colors cursor-pointer"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
-        {/* 3 Tier Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-          {DAILY_CHALLENGES.map((ch) => {
-            const isSelected = ch.id === activeChallengeId;
-            const isDone = completedChallenges.includes(ch.id);
+        {/* Tier Tabs: Bronze, Silver, Gold, All */}
+        <div className="flex flex-wrap items-center gap-2">
+          {(['Bronze', 'Silver', 'Gold', 'All'] as const).map((tier) => {
+            const isTabActive = selectedTier === tier;
+            const count =
+              tier === 'All'
+                ? TRAINING_PHRASES.length
+                : TRAINING_PHRASES.filter((p) => p.tier === tier).length;
             return (
               <button
-                key={ch.id}
+                key={tier}
                 type="button"
                 onClick={() => {
-                  setActiveChallengeId(ch.id);
-                  setTypedInput('');
+                  setSelectedTier(tier);
+                  const firstOfTier = tier === 'All' ? TRAINING_PHRASES[0] : TRAINING_PHRASES.find((p) => p.tier === tier);
+                  if (firstOfTier) {
+                    setActivePhraseId(firstOfTier.id);
+                    setTypedInput('');
+                  }
                 }}
-                className={`nexus-card-neumorphic-hover p-4 text-left cursor-pointer ${
-                  isSelected
-                    ? 'border-blue-600 ring-2 ring-blue-600/25 bg-blue-50/40'
-                    : 'hover:border-slate-300'
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  isTabActive
+                    ? 'bg-blue-600 text-white shadow-2xs ring-2 ring-blue-600/20'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
                 }`}
               >
-                <div className="flex items-center justify-between mb-2">
-                  <span
-                    className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
-                      ch.tier === 'Gold'
-                        ? 'bg-amber-100 text-amber-950 border border-amber-300'
-                        : ch.tier === 'Silver'
-                        ? 'bg-blue-100 text-blue-950 border border-blue-300'
-                        : 'bg-teal-100 text-teal-950 border border-teal-300'
-                    }`}
-                  >
-                    {ch.tier}
-                  </span>
-                  <span className="text-sm font-extrabold text-slate-950 tabular-nums">
-                    +KSh {ch.rewardKes}
-                  </span>
-                </div>
-                <p className="text-sm font-bold text-slate-950">{ch.title}</p>
-                <p className="text-xs text-slate-700 font-medium mt-1 line-clamp-2">{ch.subtitle}</p>
-                {isDone && (
-                  <div className="mt-2.5 inline-flex items-center gap-1 text-[11px] font-bold text-teal-800">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-teal-700" />
-                    <span>Claimed</span>
-                  </div>
-                )}
+                <span>{tier}</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                    isTabActive ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {count}
+                </span>
               </button>
             );
           })}
         </div>
 
+        {/* Active Phrase Card Header */}
+        <div className="nexus-card-neumorphic p-4 bg-slate-50/50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                  activePhrase.tier === 'Gold'
+                    ? 'bg-amber-100 text-amber-950 border border-amber-300'
+                    : activePhrase.tier === 'Silver'
+                    ? 'bg-blue-100 text-blue-950 border border-blue-300'
+                    : 'bg-teal-100 text-teal-950 border border-teal-300'
+                }`}
+              >
+                {activePhrase.tier}
+              </span>
+              <span className="text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 px-2 py-0.5 rounded-full">
+                {activePhrase.category}
+              </span>
+              <span className="text-xs text-slate-600 font-medium">
+                Phrase {currentFilteredIndex + 1} of {tierPhrases.length}
+              </span>
+            </div>
+            <h4 className="text-sm font-extrabold text-slate-950 pt-0.5">
+              {activePhrase.title}
+            </h4>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {isCurrentDone && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-800 bg-teal-100 border border-teal-300 px-2.5 py-1 rounded-full">
+                <CheckCircle2 className="w-3.5 h-3.5 text-teal-700" />
+                <span>Claimed</span>
+              </span>
+            )}
+            <span className="text-xs font-bold text-amber-950 bg-amber-100 border border-amber-300 px-3 py-1 rounded-full tabular-nums">
+              Reward: {formatKes(activePhrase.rewardKes)}
+            </span>
+          </div>
+        </div>
+
+        {/* Phrase Selector Quick-Jump Dropdown */}
+        <div className="flex items-center gap-2 text-xs">
+          <BookOpen className="w-4 h-4 text-blue-700 shrink-0" />
+          <label htmlFor="phrase-select" className="font-bold text-slate-700 shrink-0">
+            Jump to phrase:
+          </label>
+          <select
+            id="phrase-select"
+            value={activePhrase.id}
+            onChange={(e) => {
+              setActivePhraseId(e.target.value);
+              setTypedInput('');
+              setStatusBanner(null);
+            }}
+            className="w-full bg-white border border-slate-300 text-slate-900 rounded-lg px-2.5 py-1.5 text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+          >
+            {tierPhrases.map((p, idx) => (
+              <option key={p.id} value={p.id}>
+                #{idx + 1} [{p.tier}] {p.title} ({p.promptText.length} chars)
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Typing Box with Live Character Highlighting */}
-        <form onSubmit={handleCompleteChallenge} className="space-y-4 pt-2">
+        <form onSubmit={handleCompleteChallenge} className="space-y-4 pt-1">
           <div className="nexus-well-inset p-5 space-y-2.5">
             <div className="flex items-center justify-between text-xs">
               <span className="font-bold text-slate-900">
-                {activeChallenge.tier} • {activeChallenge.title}
+                Target phrase ({activePhrase.promptText.length} characters)
               </span>
-              <span className="font-bold text-amber-950 bg-amber-100 border border-amber-300 px-3 py-0.5 rounded-full tabular-nums">
-                Reward: {formatKes(activeChallenge.rewardKes)}
+              <span className="text-slate-600 font-medium">
+                Type naturally — your rhythm trains the behavioral autoencoder
               </span>
             </div>
 
             {/* Live Character Highlighting Display */}
             <div
-              className="p-4 rounded-xl bg-white border border-slate-300 text-base font-semibold leading-relaxed select-none tracking-normal shadow-2xs"
+              className="p-4 rounded-xl bg-white border border-slate-300 text-base font-semibold leading-relaxed select-none tracking-normal shadow-2xs break-words"
               aria-label="Target phrase to type"
             >
-              {activeChallenge.promptText.split('').map((char, idx) => {
+              {activePhrase.promptText.split('').map((char, idx) => {
                 const typedChar = typedInput[idx];
                 let charClass = 'text-slate-400';
                 if (typedChar !== undefined) {
@@ -436,7 +539,7 @@ export default function DailyChallengesPage() {
                 className="font-bold text-slate-800 flex items-center gap-1.5"
               >
                 <Keyboard className="w-4 h-4 text-blue-700" />
-                <span>Type the sentence above at your normal speed</span>
+                <span>Type the sentence above</span>
               </label>
               <span className="font-extrabold text-blue-700 tabular-nums">
                 {typingMatchPct}% matched
@@ -447,30 +550,44 @@ export default function DailyChallengesPage() {
               type="text"
               value={typedInput}
               onChange={handleTypingChange}
-              placeholder={activeChallenge.promptText}
+              placeholder={activePhrase.promptText}
               autoComplete="off"
-              className="nexus-input-neumorphic w-full px-4 py-3 rounded-xl text-sm"
+              className="nexus-input-neumorphic w-full px-4 py-3 rounded-xl text-sm font-medium"
             />
           </div>
 
-          <div className="flex items-center justify-end pt-1">
-            <button
-              type="submit"
-              disabled={!isPromptMatched || isClaimingReward}
-              className="nexus-btn-neumorphic w-full sm:w-auto px-6 py-3 rounded-xl font-bold text-sm bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40 transition-colors duration-150 flex items-center justify-center gap-2 cursor-pointer"
-            >
-              {isClaimingReward ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Crediting reward...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4 text-amber-300" />
-                  <span>Claim +{formatKes(activeChallenge.rewardKes)} reward</span>
-                </>
-              )}
-            </button>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+            <div className="text-xs text-slate-600 font-medium">
+              Press Enter or click the button once matched
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={handleNextPhrase}
+                className="nexus-btn-neumorphic px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Skip / Next phrase
+              </button>
+
+              <button
+                type="submit"
+                disabled={!isPromptMatched || isClaimingReward}
+                className="nexus-btn-neumorphic w-full sm:w-auto px-6 py-2.5 rounded-xl font-bold text-sm bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40 transition-colors duration-150 flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+              >
+                {isClaimingReward ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Crediting reward...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 text-amber-300" />
+                    <span>Claim +{formatKes(activePhrase.rewardKes)}</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </form>
       </section>
